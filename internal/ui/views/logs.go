@@ -81,14 +81,16 @@ func (m *LogsModel) Refresh() {
 		sizeStr = fmt.Sprintf("%.2f MB", float64(size)/(1024.0*1024.0))
 	}
 
-	followBadge := "○ PAUSED"
+	var followBadge string
 	if m.AutoFollow {
-		followBadge = "● TAILING"
+		followBadge = styles.BadgeOnline.Render("● TAILING")
+	} else {
+		followBadge = styles.BadgeWarning.Render("○ PAUSED")
 	}
 
 	m.StatusMsg = fmt.Sprintf("[%s] %s  •  %d lines  •  %s  •  %s",
-		st.Name,
-		filepath.Base(st.Filename),
+		styles.KeyStyle.Render(st.Name),
+		styles.ValStyle.Render(filepath.Base(st.Filename)),
 		lineCount,
 		sizeStr,
 		followBadge,

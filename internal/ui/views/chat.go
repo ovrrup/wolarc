@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,30 +17,37 @@ import (
 )
 
 type ChatMessageItem struct {
-	Role     string
-	Content  string
-	Thinking string
+	Role       string
+	Content    string
+	Thinking   string
+	Tokens     int
+	TokPerSec  float64
+	ElapsedSec float64
 }
 
 type TokenMsg api.StreamEvent
 
 type ChatModel struct {
-	Config      *config.Config
-	Client      *api.Client
-	Viewport    viewport.Model
-	TextArea    textarea.Model
-	Messages    []ChatMessageItem
-	Streaming   bool
-	CurrentResp strings.Builder
-	CurrentThnk strings.Builder
-	CancelFunc  context.CancelFunc
-	Width       int
-	Height      int
+	Config        *config.Config
+	Client        *api.Client
+	Viewport      viewport.Model
+	TextArea      textarea.Model
+	Messages      []ChatMessageItem
+	Streaming     bool
+	StreamStart   time.Time
+	TokensEmitted int
+	Spinner       spinner.Model
+	FoldThinking  bool
+	CurrentResp   strings.Builder
+	CurrentThnk   strings.Builder
+	CancelFunc    context.CancelFunc
+	Width         int
+	Height        int
 }
 
 func NewChatModel(cfg *config.Config) ChatModel {
 	ta := textarea.New()
-	ta.Placeholder = "Ask a question (RAG context will be injected automatically)..."
+	ta.Placeholder = "Ask a question (vector knowledge will be injected automatically)..."
 	ta.Focus()
 	ta.Prompt = "┃ "
 	ta.CharLimit = 2048
@@ -50,14 +59,20 @@ func NewChatModel(cfg *config.Config) ChatModel {
 	vp := viewport.New(78, 16)
 	vp.SetContent(styles.DescStyle.Render("Welcome to Wolarc Chat! Ask a question or discuss your indexed notes.\n"))
 
+	sp := spinner.New()
+	sp.Spinner = spinner.Points
+	sp.Style = lipgloss.NewStyle().Foreground(styles.ColorCyan)
+
 	return ChatModel{
-		Config:   cfg,
-		Client:   api.NewClient(cfg.AgentPort),
-		Viewport: vp,
-		TextArea: ta,
-		Messages: []ChatMessageItem{},
-		Width:    80,
-		Height:   24,
+		Config:       cfg,
+		Client:       api.NewClient(cfg.AgentPort),
+		Viewport:     vp,
+		TextArea:     ta,
+		Messages:     []ChatMessageItem{},
+		Spinner:      sp,
+		FoldThinking: false,
+		Width:        80,
+		Height:       24,
 	}
 }
 
@@ -85,6 +100,8 @@ func (m *ChatModel) SendCurrentMessage() tea.Cmd {
 		Content: text,
 	})
 	m.Streaming = true
+	m.StreamStart = time.Now()
+	m.TokensEmitted = 0
 	m.CurrentResp.Reset()
 	m.CurrentThnk.Reset()
 	m.renderConversation()
@@ -101,14 +118,14 @@ func (m *ChatModel) SendCurrentMessage() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.CancelFunc = cancel
 
-	outChan := make(chan api.StreamEvent, 32)
+	outChan := make(chan api.StreamEvent, 64)
 	go m.Client.StreamChat(ctx, apiMsgs, m.Config.Temperature, 2048, outChan)
 
-	return waitForToken(outChan)
+	return tea.Batch(waitForToken(outChan), m.Spinner.Tick)
 }
 
 func (m ChatModel) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, m.Spinner.Tick)
 }
 
 func waitForToken(c <-chan api.StreamEvent) tea.Cmd {
@@ -125,13 +142,30 @@ func (m *ChatModel) Update(msg tea.Msg) (ChatModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		var spCmd tea.Cmd
+		m.Spinner, spCmd = m.Spinner.Update(msg)
+		if m.Streaming {
+			m.renderConversation()
+		}
+		return *m, spCmd
+
 	case TokenMsg:
 		if msg.Done || msg.Error != nil {
 			m.Streaming = false
+			elapsed := time.Since(m.StreamStart).Seconds()
+			tokPerSec := 0.0
+			if elapsed > 0 && m.TokensEmitted > 0 {
+				tokPerSec = float64(m.TokensEmitted) / elapsed
+			}
+
 			assistantMsg := ChatMessageItem{
-				Role:     "assistant",
-				Content:  m.CurrentResp.String(),
-				Thinking: m.CurrentThnk.String(),
+				Role:       "assistant",
+				Content:    m.CurrentResp.String(),
+				Thinking:   m.CurrentThnk.String(),
+				Tokens:     m.TokensEmitted,
+				ElapsedSec: elapsed,
+				TokPerSec:  tokPerSec,
 			}
 			if msg.Error != nil {
 				assistantMsg.Content += fmt.Sprintf("\n[Error: %v]", msg.Error)
@@ -143,6 +177,7 @@ func (m *ChatModel) Update(msg tea.Msg) (ChatModel, tea.Cmd) {
 			return *m, nil
 		}
 
+		m.TokensEmitted++
 		if msg.IsThink {
 			m.CurrentThnk.WriteString(msg.Token)
 		} else {
@@ -170,6 +205,12 @@ func (m *ChatModel) Update(msg tea.Msg) (ChatModel, tea.Cmd) {
 			m.renderConversation()
 			return *m, nil
 		}
+
+		if msg.String() == "ctrl+t" {
+			m.FoldThinking = !m.FoldThinking
+			m.renderConversation()
+			return *m, nil
+		}
 	}
 
 	var taCmd tea.Cmd
@@ -191,10 +232,21 @@ func (m *ChatModel) renderConversation() {
 			sb.WriteString(styles.UserMessageStyle.Render("You: ") + msg.Content + "\n\n")
 		} else {
 			if msg.Thinking != "" {
-				thnkBox := styles.ThinkingBoxStyle.Width(m.Viewport.Width - 4).Render("Thinking Process:\n" + msg.Thinking)
-				sb.WriteString(thnkBox + "\n")
+				if m.FoldThinking {
+					foldBadge := styles.DescStyle.Render("▸ [Reasoning Process folded - press Ctrl+T to view]")
+					sb.WriteString(foldBadge + "\n\n")
+				} else {
+					thnkBox := styles.ThinkingBoxStyle.Width(m.Viewport.Width - 4).Render("Thinking Process:\n" + msg.Thinking)
+					sb.WriteString(thnkBox + "\n")
+				}
 			}
-			sb.WriteString(styles.AssistantMessageStyle.Render("Wola: ") + msg.Content + "\n\n")
+
+			// Assistant header with metrics badge if available
+			var metaBadge string
+			if msg.TokPerSec > 0 {
+				metaBadge = " " + lipgloss.NewStyle().Foreground(styles.ColorCyan).Render(fmt.Sprintf("[⚡ %.1f tok/s • %d tok]", msg.TokPerSec, msg.Tokens))
+			}
+			sb.WriteString(styles.AssistantMessageStyle.Render("Wola:") + metaBadge + "\n" + msg.Content + "\n\n")
 		}
 	}
 
@@ -205,9 +257,9 @@ func (m *ChatModel) renderConversation() {
 			sb.WriteString(thnkBox + "\n")
 		}
 		if m.CurrentResp.Len() > 0 {
-			sb.WriteString(styles.AssistantMessageStyle.Render("Wola: ") + m.CurrentResp.String() + " █\n\n")
+			sb.WriteString(styles.AssistantMessageStyle.Render("Wola: ") + m.CurrentResp.String() + " ▌\n\n")
 		} else if m.CurrentThnk.Len() == 0 {
-			sb.WriteString(styles.AssistantMessageStyle.Render("Wola: ") + styles.DescStyle.Render("Thinking...") + "\n\n")
+			sb.WriteString(styles.AssistantMessageStyle.Render("Wola: ") + m.Spinner.View() + " " + styles.DescStyle.Render("Thinking...") + "\n\n")
 		}
 	}
 
@@ -220,11 +272,11 @@ func (m ChatModel) View() string {
 	inputBox := styles.CardStyle.Width(m.Width - 2).Render(m.TextArea.View())
 
 	hints := fmt.Sprintf(
-		" %s Send  •  %s Clear History  •  %s Abort Stream  •  %s Switch Tab",
+		" %s Send  •  %s Clear  •  %s Fold/Unfold Reasoning  •  %s Abort Stream",
 		styles.KeyStyle.Render("Enter"),
 		styles.KeyStyle.Render("Ctrl+L"),
+		styles.KeyStyle.Render("Ctrl+T"),
 		styles.KeyStyle.Render("Ctrl+C"),
-		styles.KeyStyle.Render("Tab"),
 	)
 	hintsBar := styles.DescStyle.Render(hints)
 

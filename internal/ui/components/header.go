@@ -8,21 +8,28 @@ import (
 	"github.com/ovrrup/wolarc/internal/ui/styles"
 )
 
-func RenderHeader(width int, isOnline bool, uptime, tunnelURL string) string {
-	logo := styles.TitleStyle.Render("🐺 WOLARC AI NODE")
-	subtitle := styles.SubtitleStyle.Render("Autonomous Local RAG")
+func RenderHeader(width int, isOnline bool, uptime, tunnelURL string, tick int, activeTabName string) string {
+	logo := styles.TitleStyle.Render("🐺 WOLARC AI")
+	breadcrumb := styles.DescStyle.Render("❯ " + activeTabName)
 
 	var statusBadge string
 	if isOnline {
-		statusBadge = styles.BadgeOnline.Render("● ONLINE")
+		glyph, color := styles.PulseFrame(tick)
+		statusBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#0f172a")).
+			Background(color).
+			Padding(0, 1).
+			Render(fmt.Sprintf("%s ONLINE", glyph))
 	} else {
 		statusBadge = styles.BadgeOffline.Render("○ OFFLINE")
 	}
 
 	uptimeText := styles.DescStyle.Render(fmt.Sprintf("Uptime: %s", uptime))
+	quickKeys := lipgloss.NewStyle().Foreground(styles.ColorDim).Render("Ctrl+K: Actions │ ?: Help")
 
-	left := lipgloss.JoinHorizontal(lipgloss.Center, logo, "  ", subtitle)
-	right := lipgloss.JoinHorizontal(lipgloss.Center, statusBadge, "  ", uptimeText)
+	left := lipgloss.JoinHorizontal(lipgloss.Center, logo, " ", breadcrumb)
+	right := lipgloss.JoinHorizontal(lipgloss.Center, statusBadge, "  ", uptimeText, "  ", quickKeys)
 
 	spaceWidth := width - lipgloss.Width(left) - lipgloss.Width(right) - 4
 	if spaceWidth < 1 {

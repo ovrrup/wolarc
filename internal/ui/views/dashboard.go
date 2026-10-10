@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ovrrup/wolarc/internal/config"
@@ -12,29 +13,76 @@ import (
 )
 
 type DashboardModel struct {
-	Config   *config.Config
-	Services system.ServiceStatus
-	RAM      system.RAMInfo
-	Metrics  config.MetricsData
-	Width    int
-	Height   int
+	Config          *config.Config
+	Services        system.ServiceStatus
+	RAM             system.RAMInfo
+	Metrics         config.MetricsData
+	VelocityHistory []float64
+	Spinner         spinner.Model
+	Width           int
+	Height          int
 }
 
 func NewDashboardModel(cfg *config.Config) DashboardModel {
-	return DashboardModel{
-		Config:   cfg,
-		Services: system.CheckAllServices(cfg.ChatPort, cfg.EmbedPort),
-		RAM:      system.GetRAMInfo(),
-		Metrics:  config.GetMetrics(cfg),
-		Width:    80,
-		Height:   24,
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(styles.ColorCyan)
+
+	m := DashboardModel{
+		Config:          cfg,
+		Services:        system.CheckAllServices(cfg.ChatPort, cfg.EmbedPort),
+		RAM:             system.GetRAMInfo(),
+		Metrics:         config.GetMetrics(cfg),
+		VelocityHistory: make([]float64, 0, 16),
+		Spinner:         sp,
+		Width:           80,
+		Height:          24,
 	}
+	m.Refresh()
+	return m
 }
 
 func (m *DashboardModel) Refresh() {
 	m.Services = system.CheckAllServices(m.Config.ChatPort, m.Config.EmbedPort)
 	m.RAM = system.GetRAMInfo()
 	m.Metrics = config.GetMetrics(m.Config)
+
+	// Update velocity history
+	vel := m.Metrics.PredictedPerSecond
+	if len(m.VelocityHistory) >= 16 {
+		m.VelocityHistory = append(m.VelocityHistory[1:], vel)
+	} else {
+		m.VelocityHistory = append(m.VelocityHistory, vel)
+	}
+}
+
+func (m DashboardModel) Init() tea.Cmd {
+	return m.Spinner.Tick
+}
+
+func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		m.Spinner, cmd = m.Spinner.Update(msg)
+		return m, cmd
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "s":
+			if m.Services.ChatServer.Running || m.Services.AgentGateway.Running {
+				_ = system.StopServices()
+			} else {
+				_ = system.StartServices()
+			}
+			m.Refresh()
+			return m, nil
+		case "r":
+			_ = system.RestartServices()
+			m.Refresh()
+			return m, nil
+		}
+	}
+	return m, nil
 }
 
 func (m DashboardModel) View() string {
@@ -53,18 +101,23 @@ func (m DashboardModel) View() string {
 	if speedPercent > 100 {
 		speedPercent = 100
 	}
-	speedGauge := styles.Gauge(speedPercent, 12)
+	speedGauge := styles.GradientBar(float64(speedPercent), 14)
+	sparkline := styles.Sparkline(m.VelocityHistory, 35.0)
+	if sparkline == "" {
+		sparkline = styles.DescStyle.Render("── (warming up)")
+	}
 
 	telemetryContent := fmt.Sprintf(
-		"%s  %s\n\n"+
+		"%s\n\n"+
 			"• Gen Velocity : %s  %s\n"+
+			"• Speed Spark  : %s\n"+
 			"• Prompt Eval  : %s\n"+
 			"• Output Total : %s\n"+
 			"• Total Queries: %s",
 		styles.CardHeader.Render("⚡ INFERENCE TELEMETRY"),
-		"",
 		styles.KeyStyle.Render(speedVal),
 		speedGauge,
+		sparkline,
 		styles.DescStyle.Render(promptVal),
 		styles.DescStyle.Render(totalTokens),
 		styles.DescStyle.Render(reqCount),
@@ -73,7 +126,7 @@ func (m DashboardModel) View() string {
 
 	// 2. HARDWARE & MEMORY CARD
 	ramUsedStr := fmt.Sprintf("%d MB / %d MB (%d%%)", m.RAM.UsedMB, m.RAM.TotalMB, m.RAM.UsedPercent)
-	ramGauge := styles.Gauge(m.RAM.UsedPercent, 12)
+	ramGauge := styles.GradientBar(float64(m.RAM.UsedPercent), 14)
 
 	threadsStr := fmt.Sprintf("%d chat / %d embed", m.Config.ChatThreads, m.Config.EmbedThreads)
 	flashStr := m.Config.FlashAttention
@@ -83,13 +136,12 @@ func (m DashboardModel) View() string {
 	}
 
 	ramContent := fmt.Sprintf(
-		"%s  %s\n\n"+
+		"%s\n\n"+
 			"• Memory Usage : %s\n"+
-			"• Gauge Bar    : %s\n"+
+			"• Memory Bar   : %s\n"+
 			"• CPU Threads  : %s\n"+
 			"• Flash-Attn   : %s  |  MLock: %s",
 		styles.CardHeader.Render("🧠 HARDWARE & MEMORY"),
-		"",
 		styles.KeyStyle.Render(ramUsedStr),
 		ramGauge,
 		styles.DescStyle.Render(threadsStr),
@@ -100,13 +152,18 @@ func (m DashboardModel) View() string {
 
 	row1 := lipgloss.JoinHorizontal(lipgloss.Top, telemetryCard, " ", ramCard)
 
-	// 3. SERVICE DAEMONS HEALTH CARD
+	// 3. SERVICE DAEMONS HEALTH CARD (with animated spinners)
 	renderServiceLine := func(name string, running bool, port string, pid int) string {
 		var badge string
 		if running {
-			badge = styles.BadgeOnline.Render("RUNNING")
+			badge = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#0f172a")).
+				Background(styles.ColorGreen).
+				Padding(0, 1).
+				Render(m.Spinner.View() + " ACTIVE")
 		} else {
-			badge = styles.BadgeOffline.Render("STOPPED")
+			badge = styles.BadgeOffline.Render("○ STOPPED")
 		}
 		var meta string
 		if running {
@@ -114,7 +171,7 @@ func (m DashboardModel) View() string {
 		} else {
 			meta = fmt.Sprintf("(Port %s)", port)
 		}
-		return fmt.Sprintf(" %-18s %s  %s", name, badge, styles.DescStyle.Render(meta))
+		return fmt.Sprintf(" %-17s %s  %s", name, badge, styles.DescStyle.Render(meta))
 	}
 
 	servicesContent := fmt.Sprintf(
@@ -171,7 +228,7 @@ func (m DashboardModel) View() string {
 		fmt.Sprintf("%s Models", styles.KeyStyle.Render("[m]")),
 		fmt.Sprintf("%s Knowledge", styles.KeyStyle.Render("[k]")),
 		fmt.Sprintf("%s Logs", styles.KeyStyle.Render("[l]")),
-		fmt.Sprintf("%s Quit", styles.KeyStyle.Render("[q]")),
+		fmt.Sprintf("%s Palette", styles.KeyStyle.Render("[Ctrl+K]")),
 	}
 	actionsBar := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -181,29 +238,4 @@ func (m DashboardModel) View() string {
 		Render("Actions: " + strings.Join(actions, "  │  "))
 
 	return lipgloss.JoinVertical(lipgloss.Left, row1, " ", row2, " ", actionsBar)
-}
-
-func (m DashboardModel) Init() tea.Cmd {
-	return nil
-}
-
-func (m DashboardModel) Update(msg tea.Msg) (DashboardModel, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "s":
-			if m.Services.ChatServer.Running || m.Services.AgentGateway.Running {
-				_ = system.StopServices()
-			} else {
-				_ = system.StartServices()
-			}
-			m.Refresh()
-			return m, nil
-		case "r":
-			_ = system.RestartServices()
-			m.Refresh()
-			return m, nil
-		}
-	}
-	return m, nil
 }

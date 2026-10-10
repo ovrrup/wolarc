@@ -140,9 +140,136 @@ var (
 	HelpBar = lipgloss.NewStyle().
 		Foreground(ColorSubtext).
 		MarginTop(1)
+
+	// Modal Overlay Styles
+	ModalBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorCyan).
+			Background(lipgloss.Color("#0b0f19")).
+			Padding(1, 2)
+
+	ModalHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(ColorCyan).
+				MarginBottom(1)
+
+	// Toast Notification Styles
+	ToastSuccessStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorGreen).
+				Foreground(ColorGreen).
+				Background(lipgloss.Color("#052e16")).
+				Bold(true).
+				Padding(0, 1)
+
+	ToastInfoStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorCyan).
+			Foreground(ColorCyan).
+			Background(lipgloss.Color("#083344")).
+			Bold(true).
+			Padding(0, 1)
+
+	ToastWarningStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorYellow).
+				Foreground(ColorYellow).
+				Background(lipgloss.Color("#422006")).
+				Bold(true).
+				Padding(0, 1)
+
+	ToastErrorStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorRed).
+			Foreground(ColorRed).
+			Background(lipgloss.Color("#450a0a")).
+			Bold(true).
+			Padding(0, 1)
+
+	// Command Palette Styles
+	PaletteInputStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorCyan).
+				Padding(0, 1).
+				MarginBottom(1)
+
+	PaletteSelectedStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#0f172a")).
+				Background(ColorCyan).
+				Padding(0, 1)
+
+	PaletteItemStyle = lipgloss.NewStyle().
+				Foreground(ColorText).
+				Padding(0, 1)
 )
 
-func Gauge(percent int, width int) string {
+// Sparkline renders a high-resolution Unicode telemetry sparkline with adaptive color gradients
+var sparklineGlyphs = []string{" ", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+
+func Sparkline(values []float64, maxVal float64) string {
+	if len(values) == 0 {
+		return ""
+	}
+	if maxVal <= 0 {
+		for _, v := range values {
+			if v > maxVal {
+				maxVal = v
+			}
+		}
+	}
+	if maxVal <= 0 {
+		maxVal = 1.0
+	}
+
+	var res string
+	for _, v := range values {
+		ratio := v / maxVal
+		if ratio < 0 {
+			ratio = 0
+		}
+		if ratio > 1.0 {
+			ratio = 1.0
+		}
+
+		idx := int(ratio * float64(len(sparklineGlyphs)-1))
+		glyph := sparklineGlyphs[idx]
+
+		var color lipgloss.TerminalColor
+		if ratio > 0.8 {
+			color = ColorCyan
+		} else if ratio > 0.5 {
+			color = ColorBlue
+		} else if ratio > 0.2 {
+			color = ColorGreen
+		} else {
+			color = ColorBorder
+		}
+
+		res += lipgloss.NewStyle().Foreground(color).Render(glyph)
+	}
+	return res
+}
+
+// PulseFrame returns a pulsing animated glyph based on animation tick index
+func PulseFrame(tick int) (string, lipgloss.TerminalColor) {
+	frames := []struct {
+		glyph string
+		color lipgloss.TerminalColor
+	}{
+		{"●", ColorGreen},
+		{"◉", ColorGreen},
+		{"◎", ColorCyan},
+		{"○", ColorBlue},
+		{"◎", ColorCyan},
+		{"◉", ColorGreen},
+	}
+	idx := (tick / 2) % len(frames)
+	return frames[idx].glyph, frames[idx].color
+}
+
+// GradientBar renders a smooth colored bar with percentage badge
+func GradientBar(percent float64, width int) string {
 	if width < 4 {
 		width = 10
 	}
@@ -153,20 +280,27 @@ func Gauge(percent int, width int) string {
 		percent = 100
 	}
 
-	filled := (percent * width) / 100
+	filled := int((percent / 100.0) * float64(width))
 	empty := width - filled
 
-	fillColor := ColorGreen
+	var fillColor lipgloss.TerminalColor
 	if percent >= 85 {
 		fillColor = ColorRed
 	} else if percent >= 65 {
 		fillColor = ColorYellow
+	} else if percent >= 35 {
+		fillColor = ColorCyan
+	} else {
+		fillColor = ColorGreen
 	}
 
-	fillStyle := lipgloss.NewStyle().Foreground(fillColor)
-	emptyStyle := lipgloss.NewStyle().Foreground(ColorBorder)
+	filledBar := lipgloss.NewStyle().Foreground(fillColor).Render(repeat("█", filled))
+	emptyBar := lipgloss.NewStyle().Foreground(ColorBorder).Render(repeat("░", empty))
+	return filledBar + emptyBar
+}
 
-	return fillStyle.Render(repeat("█", filled)) + emptyStyle.Render(repeat("░", empty))
+func Gauge(percent int, width int) string {
+	return GradientBar(float64(percent), width)
 }
 
 func repeat(s string, count int) string {
@@ -176,3 +310,4 @@ func repeat(s string, count int) string {
 	}
 	return res
 }
+

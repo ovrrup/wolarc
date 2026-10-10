@@ -9,12 +9,15 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 ## Features
 
 - **Autonomous RAG Engine**: Background daemon (`indexer.py`) automatically indexes notes (`.md`, `.txt`, `.pdf`) into local vector embeddings using cosine similarity.
-- **Modern Go & Bubble Tea TUI (`wola-tui`)**: Fully redesigned in Go using Charm Bubble Tea, Lip Gloss, and Bubbles. Features 5 unified views:
-  - `⚡ Dashboard`: Real-time hardware telemetry, generation velocity gauges, daemon orchestration cards.
-  - `💬 Chat`: Multi-turn conversational chat with live SSE token streaming, collapsible thinking blocks, and dynamic RAG injection.
+- **Industry-Standard Go & Bubble Tea TUI (`wola-tui`)**: Fully redesigned in Go using Charm Bubble Tea, Lip Gloss, and Bubbles with animations and micro-transitions:
+  - `⚡ Dashboard`: Real-time hardware telemetry, live Unicode velocity sparklines (` ▂▃▄▅▆▇█`), multi-color gradient bars, animated daemon spinners, and glowing radar pulse indicators.
+  - `💬 Chat`: Multi-turn conversational chat with live SSE token streaming, token velocity badges (`[⚡ 19.4 tok/s • 342 tok]`), collapsible reasoning blocks (`Ctrl+T`), and dynamic RAG injection.
   - `📦 Models`: Local GGUF model manager (`~/models`), active role assignments, and external storage importer (Move/Copy).
-  - `📚 Knowledge`: Vector database inspector, document summaries, chunk counts, and live semantic search retrieval tester.
+  - `📚 Knowledge`: Vector database inspector, document summaries, chunk counts, and live semantic search retrieval tester with gradient match bars.
   - `📋 Logs`: Live multi-daemon log tailer with auto-scroll and stream selector (`chat`, `embed`, `agent`, `tunnel`, `indexer`, `thinking`).
+  - `⚡ Command Palette (`Ctrl+K` / `:`)`: Instant fuzzy action launcher for service management, view jumping, and URL copying.
+  - `❓ Help Overlay Modal (`?` / `F1`)`: Floating cheat sheet with hotkeys, navigation guide, and tips.
+  - `🍞 Micro-Toast System`: Non-intrusive transient notifications with automatic dismissal for system events and clipboard sync.
 - **Dual Engine Architecture**: Concurrently runs an embedding engine and a chat LLM engine via `llama-server`.
 - **OpenAI-Compatible Gateway**: Exposes `/v1/chat/completions` and `/v1/models` (port 5000), supporting real-time SSE streaming.
 - **Real-Time Thinking Viewer (`wola.th`)**: Inspect model reasoning (`<think>` tokens) and RAG retrieval scores live as inference streams.

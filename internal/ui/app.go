@@ -2,9 +2,12 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ovrrup/wolarc/internal/config"
@@ -24,8 +27,8 @@ const (
 
 type TickMsg time.Time
 
-func tickCmd() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+func tickCmd(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return TickMsg(t)
 	})
 }
@@ -38,12 +41,16 @@ type AppModel struct {
 	Models    views.ModelsModel
 	Knowledge views.KnowledgeModel
 	Logs      views.LogsModel
+	Palette   components.PaletteModel
+	HelpModal components.HelpModalModel
+	Toast     *components.Toast
 	Width     int
 	Height    int
 	StartTime time.Time
 	IsOnline  bool
 	TunnelURL string
 	Quitting  bool
+	TickCount int
 }
 
 func NewAppModel(cfg *config.Config, initialTab int) AppModel {
@@ -62,6 +69,8 @@ func NewAppModel(cfg *config.Config, initialTab int) AppModel {
 		Models:    views.NewModelsModel(cfg),
 		Knowledge: views.NewKnowledgeModel(cfg),
 		Logs:      views.NewLogsModel(cfg),
+		Palette:   components.NewPaletteModel(),
+		HelpModal: components.NewHelpModalModel(),
 		Width:     80,
 		Height:    24,
 		StartTime: time.Now(),
@@ -70,10 +79,16 @@ func NewAppModel(cfg *config.Config, initialTab int) AppModel {
 	}
 }
 
+func (m *AppModel) SetToast(msg string, t components.ToastType) {
+	toast := components.NewToast(msg, t)
+	m.Toast = &toast
+}
+
 func (m AppModel) Init() tea.Cmd {
 	return tea.Batch(
 		tea.EnterAltScreen,
-		tickCmd(),
+		tickCmd(time.Second),
+		m.Dashboard.Init(),
 		m.Chat.Init(),
 		m.Models.Init(),
 		m.Knowledge.Init(),
@@ -107,7 +122,23 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case spinner.TickMsg:
+		// Broadcast spinner tick to active view with animation
+		var cmd tea.Cmd
+		if m.ActiveTab == TabDashboard {
+			m.Dashboard, cmd = m.Dashboard.Update(msg)
+			cmds = append(cmds, cmd)
+		} else if m.ActiveTab == TabChat {
+			m.Chat, cmd = m.Chat.Update(msg)
+			cmds = append(cmds, cmd)
+		} else if m.ActiveTab == TabKnowledge {
+			m.Knowledge, cmd = m.Knowledge.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
+
 	case TickMsg:
+		m.TickCount++
 		services := system.CheckAllServices(m.Config.ChatPort, m.Config.EmbedPort)
 		m.IsOnline = services.ChatServer.Running || services.AgentGateway.Running
 		m.TunnelURL = config.GetTunnelURL(m.Config)
@@ -118,23 +149,60 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Logs.Refresh()
 		}
 
-		return m, tickCmd()
+		// Adaptive tick rate: fast 200ms when chat is streaming or daemons warming up, 1s when idle
+		interval := time.Second
+		if m.Chat.Streaming || m.Dashboard.Services.ChatServer.Running {
+			interval = 250 * time.Millisecond
+		}
+		return m, tickCmd(interval)
 
 	case tea.KeyMsg:
-		// Global Quit
-		if msg.String() == "ctrl+c" {
+		// 1. If Command Palette is open, route directly to Palette
+		if m.Palette.Active {
+			var cmd tea.Cmd
+			var action *components.PaletteActionID
+			m.Palette, cmd, action = m.Palette.Update(msg)
+			if action != nil {
+				m.handlePaletteAction(*action)
+			}
+			return m, cmd
+		}
+
+		// 2. If Help Modal is open, handle dismissal
+		if m.HelpModal.Active {
+			switch msg.String() {
+			case "esc", "?", "q":
+				m.HelpModal.Active = false
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// 3. Global hotkeys
+		switch msg.String() {
+		case "ctrl+k", ":":
+			// Open Command Palette
+			m.Palette.Open()
+			return m, nil
+		case "?":
+			// Toggle Help Modal
+			isTyping := (m.ActiveTab == TabChat && m.Chat.TextArea.Focused()) ||
+				(m.ActiveTab == TabModels && m.Models.Importing) ||
+				(m.ActiveTab == TabKnowledge && m.Knowledge.IsSearching)
+			if !isTyping {
+				m.HelpModal.Toggle()
+				return m, nil
+			}
+		case "ctrl+c":
 			if m.ActiveTab == TabChat && m.Chat.Streaming {
-				// Abort stream instead of quitting immediately
+				// Abort active LLM token stream
 				var chatCmd tea.Cmd
 				m.Chat, chatCmd = m.Chat.Update(msg)
+				m.SetToast("Aborted generation stream", components.ToastWarning)
 				return m, chatCmd
 			}
 			m.Quitting = true
 			return m, tea.Quit
-		}
-
-		// Direct Tab Hotkeys (F1-F5, Ctrl+1..5)
-		switch msg.String() {
 		case "f1", "ctrl+1":
 			m.ActiveTab = TabDashboard
 			m.Dashboard.Refresh()
@@ -154,7 +222,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ActiveTab = TabLogs
 			m.Logs.Refresh()
 			return m, nil
-		case "ctrl+t", "ctrl+n":
+		case "ctrl+n":
 			m.ActiveTab = (m.ActiveTab + 1) % 5
 			return m, nil
 		case "ctrl+p":
@@ -162,7 +230,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Tab cycling when not typing in text areas/inputs
+		// 4. Tab cycling when text inputs are not focused
 		isTextInputActive := (m.ActiveTab == TabChat && m.Chat.TextArea.Focused()) ||
 			(m.ActiveTab == TabModels && m.Models.Importing) ||
 			(m.ActiveTab == TabKnowledge && m.Knowledge.IsSearching)
@@ -200,7 +268,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Quick shortcuts on Dashboard
+		// 5. Dashboard-specific single-key shortcuts
 		if m.ActiveTab == TabDashboard {
 			switch msg.String() {
 			case "c":
@@ -249,6 +317,82 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m *AppModel) handlePaletteAction(action components.PaletteActionID) {
+	switch action {
+	case components.ActionStartStack:
+		_ = system.StartServices()
+		m.SetToast("Booting Wolarc stack (wola.r)...", components.ToastSuccess)
+		m.Dashboard.Refresh()
+	case components.ActionStopStack:
+		_ = system.StopServices()
+		m.SetToast("Services cleanly stopped (wola.k)", components.ToastWarning)
+		m.Dashboard.Refresh()
+	case components.ActionRestartStack:
+		_ = system.RestartServices()
+		m.SetToast("Restarting Wolarc stack (wola.rs)...", components.ToastInfo)
+		m.Dashboard.Refresh()
+	case components.ActionCopyURL:
+		url := config.GetTunnelURL(m.Config)
+		if url != "" {
+			_ = clipboard.WriteAll(url)
+			_ = exec.Command("termux-clipboard-set", url).Run()
+			m.SetToast("Copied tunnel URL to clipboard: "+url, components.ToastSuccess)
+		} else {
+			m.SetToast("No active tunnel URL found", components.ToastWarning)
+		}
+	case components.ActionRunIndexer:
+		go func() {
+			cmd := exec.Command("wola.i", "--once")
+			_ = cmd.Run()
+		}()
+		m.SetToast("Triggered background document vectorizer pass", components.ToastInfo)
+		m.Knowledge.Refresh()
+	case components.ActionRunBench:
+		m.SetToast("Run 'wola.bench' in terminal for optimal thread benchmarking", components.ToastInfo)
+	case components.ActionGotoDash:
+		m.ActiveTab = TabDashboard
+		m.Dashboard.Refresh()
+	case components.ActionGotoChat:
+		m.ActiveTab = TabChat
+	case components.ActionGotoModels:
+		m.ActiveTab = TabModels
+		m.Models.Refresh()
+	case components.ActionGotoKnow:
+		m.ActiveTab = TabKnowledge
+		m.Knowledge.Refresh()
+	case components.ActionGotoLogs:
+		m.ActiveTab = TabLogs
+		m.Logs.Refresh()
+	case components.ActionReloadConfig:
+		m.Config = config.LoadConfig()
+		m.Dashboard.Config = m.Config
+		m.Chat.Config = m.Config
+		m.Models.Config = m.Config
+		m.Knowledge.Config = m.Config
+		m.Logs.Config = m.Config
+		m.SetToast("Configuration reloaded from ~/.wolarc", components.ToastSuccess)
+	case components.ActionQuitApp:
+		m.Quitting = true
+	}
+}
+
+func (m AppModel) getTabName() string {
+	switch m.ActiveTab {
+	case TabDashboard:
+		return "Dashboard"
+	case TabChat:
+		return "Interactive Chat"
+	case TabModels:
+		return "Models & Storage"
+	case TabKnowledge:
+		return "Vector Knowledge"
+	case TabLogs:
+		return "Multi-Daemon Logs"
+	default:
+		return "Overview"
+	}
+}
+
 func (m AppModel) getUptime() string {
 	d := time.Since(m.StartTime)
 	h := int(d.Hours())
@@ -265,24 +409,29 @@ func (m AppModel) View() string {
 		return styles.DescStyle.Render("\n  🐺 Exiting Wolarc TUI. Have a productive day!\n\n")
 	}
 
-	// 1. Header Bar
-	header := components.RenderHeader(m.Width, m.IsOnline, m.getUptime(), m.TunnelURL)
+	// 1. Animated Header Bar with Breadcrumbs & Radar Pulse
+	header := components.RenderHeader(m.Width, m.IsOnline, m.getUptime(), m.TunnelURL, m.TickCount, m.getTabName())
 
-	// 2. Tab Navigation Bar
-	tabs := []string{
-		"1 ⚡ Dashboard",
-		"2 💬 Chat",
-		"3 📦 Models",
-		"4 📚 Knowledge",
-		"5 📋 Logs",
+	// 2. Tab Navigation Bar with Micro-transitions
+	tabLabels := []struct {
+		Icon string
+		Name string
+	}{
+		{"⚡", "Dashboard"},
+		{"💬", "Chat"},
+		{"📦", "Models"},
+		{"📚", "Knowledge"},
+		{"📋", "Logs"},
 	}
 
 	var renderedTabs []string
-	for i, t := range tabs {
+	for i, t := range tabLabels {
 		if i == m.ActiveTab {
-			renderedTabs = append(renderedTabs, styles.ActiveTabStyle.Render(t))
+			label := fmt.Sprintf("▸ %d %s %s ◂", i+1, t.Icon, t.Name)
+			renderedTabs = append(renderedTabs, styles.ActiveTabStyle.Render(label))
 		} else {
-			renderedTabs = append(renderedTabs, styles.TabStyle.Render(t))
+			label := fmt.Sprintf("%d %s %s", i+1, t.Icon, t.Name)
+			renderedTabs = append(renderedTabs, styles.TabStyle.Render(label))
 		}
 	}
 	tabRow := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
@@ -306,16 +455,34 @@ func (m AppModel) View() string {
 		currentView = m.Logs.View()
 	}
 
-	// 4. Global Footer Keymaps
-	globalHints := fmt.Sprintf(
-		" %s Switch Tab  •  %s Direct Tab  •  %s Quit",
-		styles.KeyStyle.Render("Tab / Ctrl+T"),
-		styles.KeyStyle.Render("F1-F5"),
-		styles.KeyStyle.Render("q / Ctrl+C"),
-	)
-	footer := styles.DescStyle.Render(globalHints)
+	// 4. Global Footer Keymaps & Micro-Toast Pill
+	var footerRow string
+	toastView := components.RenderToast(m.Toast, m.Width)
+	if toastView != "" {
+		footerRow = toastView
+	} else {
+		globalHints := fmt.Sprintf(
+			" %s Switch Tab  •  %s Direct Tab  •  %s Quick Palette  •  %s Help  •  %s Quit",
+			styles.KeyStyle.Render("Tab / Shift+Tab"),
+			styles.KeyStyle.Render("F1-F5"),
+			styles.KeyStyle.Render("Ctrl+K / :"),
+			styles.KeyStyle.Render("?"),
+			styles.KeyStyle.Render("q / Ctrl+C"),
+		)
+		footerRow = styles.DescStyle.Render(globalHints)
+	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, tabBar, currentView, footer)
+	baseLayout := lipgloss.JoinVertical(lipgloss.Left, header, tabBar, currentView, footerRow)
+
+	// 5. Modal Overlays (Command Palette & Help Cheat Sheet)
+	if m.Palette.Active {
+		return m.Palette.View(m.Width, m.Height)
+	}
+	if m.HelpModal.Active {
+		return m.HelpModal.View(m.Width, m.Height)
+	}
+
+	return baseLayout
 }
 
 func max(a, b int) int {

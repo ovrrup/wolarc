@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -56,6 +57,7 @@ type KnowledgeModel struct {
 	DBFileSize    int64
 	DBFileMtime   time.Time
 	SearchInput   textinput.Model
+	Spinner       spinner.Model
 	IsSearching   bool
 	SearchResults []SearchResultItem
 	StatusMsg     string
@@ -70,9 +72,14 @@ func NewKnowledgeModel(cfg *config.Config) KnowledgeModel {
 	ti.CharLimit = 256
 	ti.Width = 60
 
+	sp := spinner.New()
+	sp.Spinner = spinner.MiniDot
+	sp.Style = lipgloss.NewStyle().Foreground(styles.ColorCyan)
+
 	m := KnowledgeModel{
 		Config:      cfg,
 		SearchInput: ti,
+		Spinner:     sp,
 		Width:       80,
 		Height:      24,
 	}
@@ -282,13 +289,18 @@ func cosineSimilarity(a, b []float64) float64 {
 }
 
 func (m KnowledgeModel) Init() tea.Cmd {
-	return nil
+	return m.Spinner.Tick
 }
 
 func (m KnowledgeModel) Update(msg tea.Msg) (KnowledgeModel, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		var spCmd tea.Cmd
+		m.Spinner, spCmd = m.Spinner.Update(msg)
+		return m, spCmd
+
 	case tea.KeyMsg:
 		if m.IsSearching {
 			switch msg.String() {
@@ -430,10 +442,11 @@ func (m KnowledgeModel) View() string {
 	if len(m.SearchResults) > 0 {
 		searchSection.WriteString(styles.SubheaderStyle.Render("Top Matched Chunks:") + "\n")
 		for idx, res := range m.SearchResults {
-			scorePct := fmt.Sprintf("%.1f%%", res.Score*100)
-			scoreBadge := styles.BadgeOnline.Render(scorePct)
+			matchPercent := res.Score * 100.0
+			matchBar := styles.GradientBar(matchPercent, 10)
+			scoreBadge := styles.BadgeOnline.Render(fmt.Sprintf("%s %.1f%%", matchBar, matchPercent))
 			if res.Score < 0.6 {
-				scoreBadge = styles.BadgeOffline.Render(scorePct)
+				scoreBadge = styles.BadgeOffline.Render(fmt.Sprintf("%s %.1f%%", matchBar, matchPercent))
 			}
 
 			searchSection.WriteString(fmt.Sprintf(
@@ -446,7 +459,7 @@ func (m KnowledgeModel) View() string {
 			))
 		}
 	} else if m.IsSearching {
-		searchSection.WriteString(styles.DescStyle.Render("Press Enter to execute semantic query..."))
+		searchSection.WriteString(styles.DescStyle.Render(m.Spinner.View() + " Type query and press Enter to execute semantic search..."))
 	}
 
 	searchCard := styles.CardStyle.Width(m.Width - 4).Render(searchSection.String())
