@@ -109,7 +109,8 @@ This boots:
 | `wola.m` | List models in `~/models` or switch active models (`wola.m chat <file>`) |
 | `wola.t` | View and edit configuration parameters (`wola.t KEY VALUE`) |
 | `wola.i` | Manage document index (`wola.i status`, `wola.i sync`, `wola.i rebuild`) |
-| `wola-h` | Display the interactive manual and command guide |
+| `wola.u` | **Check for updates** & upgrade to latest release (`wola.u`) |
+| `wola-h` | Interactive **command center** and quick launcher |
 
 ---
 

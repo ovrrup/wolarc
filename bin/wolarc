@@ -161,7 +161,7 @@ start_node() {
     echo -e "  Embed Model     : ${C_YELLOW}${EMBED_MODEL}${C_RESET}"
     echo -e "  API Key         : sk-test"
     echo -e "${C_CYAN}-----------------------------------------------------------------${C_RESET}"
-    echo -e "  Commands: ${C_BOLD}wola.d${C_RESET} | ${C_BOLD}wola.th${C_RESET} | ${C_BOLD}wola.gt${C_RESET} | ${C_BOLD}wola.t${C_RESET} | ${C_BOLD}wola.rs${C_RESET} | ${C_BOLD}wola.k${C_RESET}"
+    echo -e "  Commands: ${C_BOLD}wola.d${C_RESET} | ${C_BOLD}wola.th${C_RESET} | ${C_BOLD}wola.gt${C_RESET} | ${C_BOLD}wola.t${C_RESET} | ${C_BOLD}wola.rs${C_RESET} | ${C_BOLD}wola.u${C_RESET} | ${C_BOLD}wola.k${C_RESET}"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
 }
 
@@ -222,6 +222,7 @@ case "$INVOCATION" in
     "wola.m")  shift; exec "$PREFIX/bin/wola.m" "$@" ;;
     "wola.i")  shift; exec "$PREFIX/bin/wola.i" "$@" ;;
     "wola.gt") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
+    "wola.u")  shift; exec "$PREFIX/bin/wola.u" "$@" ;;
     "wola-h"|"wola.h") exec "$PREFIX/bin/wola-h" ;;
     *)
         case "$1" in
@@ -234,10 +235,11 @@ case "$INVOCATION" in
             "m"|"models")      shift; exec "$PREFIX/bin/wola.m" "$@" ;;
             "i"|"index")       shift; exec "$PREFIX/bin/wola.i" "$@" ;;
             "gt"|"store")      shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
+            "u"|"update"|"upgrade") shift; exec "$PREFIX/bin/wola.u" "$@" ;;
             "status")          status_node ;;
             *)
                 echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
-                echo "Usage: wola.r | wola.k | wola.rs | wola.d | wola.th | wola.gt | wola.t | wola.m | wola.i | wola-h"
+                echo "Usage: wola.r | wola.k | wola.rs | wola.d | wola.th | wola.gt | wola.t | wola.m | wola.i | wola.u | wola-h"
                 ;;
         esac
         ;;
