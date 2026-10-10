@@ -14,7 +14,8 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 
 ## Features
 
-- **Autonomous RAG Engine**: Background daemon (`indexer.py`) automatically indexes notes (`.md`, `.txt`, `.pdf`) into local vector embeddings using cosine similarity.
+- **Universal Multi-Format RAG Engine**: Background daemon (`indexer.py`) automatically vectorizes any files placed in your knowledge folder — documents (`.pdf`, `.docx`, `.epub`, `.md`, `.txt`), audio tracks & transcripts (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`), video metadata & dialogue (`.mp4`, `.mkv`, `.mov`), photos & diagrams with EXIF & OCR (`.jpg`, `.png`, `.svg`), office files (`.pptx`, `.xlsx`), source code, and data tables.
+- **Autonomous Reasoning with Personalized Memory Blending**: The model prioritizes its own foundational intelligence and creative reasoning instead of robotic verbatim quoting. Verified personal knowledge and file excerpts are seamlessly integrated as background memory to deliver personalized, relevant answers without awkward "according to the notes" disclaimers.
 - **Industry-Standard Go & Bubble Tea TUI (`wola-tui`)**: Fully redesigned in Go using Charm Bubble Tea, Lip Gloss, and Bubbles with animations and micro-transitions:
   - `⚡ Dashboard`: Real-time hardware telemetry, live Unicode velocity sparklines (` ▂▃▄▅▆▇█`), multi-color gradient bars, animated daemon spinners, and glowing radar pulse indicators.
   - `💬 Chat`: Multi-turn conversational chat with live SSE token streaming, token velocity badges (`[⚡ 19.4 tok/s • 342 tok]`), collapsible reasoning blocks (`Ctrl+T`), and dynamic RAG injection.
@@ -165,10 +166,10 @@ This boots:
 
 Dynamic runtime knobs (instant effect, no restart needed):
 ```bash
-wola.t TEMPERATURE 0.2              # Adjust sampling temperature
-wola.t SIMILARITY_THRESHOLD 0.70    # Strictness of vector matching
-wola.t TOP_K 3                      # Number of context chunks injected
-wola.t SYSTEM_PROMPT "Be concise."  # Assistant persona
+wola.t TEMPERATURE 0.6              # Adjust sampling temperature (0.6 optimal for natural intelligence)
+wola.t SIMILARITY_THRESHOLD 0.50    # High-confidence vector matching threshold
+wola.t TOP_K 2                      # Number of context chunks injected
+wola.t SYSTEM_PROMPT "..."          # Custom system persona
 wola.t ENABLE_TUI true              # Default UI mode (true: Go TUI, false: classic CLI)
 ```
 

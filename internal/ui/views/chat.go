@@ -48,7 +48,7 @@ type ChatModel struct {
 
 func NewChatModel(cfg *config.Config) ChatModel {
 	ta := textarea.New()
-	ta.Placeholder = "Ask a question (vector knowledge will be injected automatically)..."
+	ta.Placeholder = "Ask anything (AI intelligence enhanced with your personal knowledge & files)..."
 	ta.Focus()
 	ta.Prompt = "┃ "
 	ta.CharLimit = 2048
@@ -58,7 +58,7 @@ func NewChatModel(cfg *config.Config) ChatModel {
 	ta.ShowLineNumbers = false
 
 	vp := viewport.New(78, 16)
-	vp.SetContent(styles.DescStyle.Render("Welcome to Wolarc Chat! Ask a question or discuss your indexed notes.\n"))
+	vp.SetContent(styles.DescStyle.Render("Welcome to Wolarc Chat! Ask any question or explore your personal knowledge base.\n"))
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Points

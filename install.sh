@@ -443,9 +443,9 @@ else:
             elif k == 'SIMILARITY_THRESHOLD':
                 try:
                     s_val = float(l.split('=', 1)[1].strip('\"\' \n'))
-                    if s_val >= 0.65:
-                        l = 'SIMILARITY_THRESHOLD=\"0.35\"\n'
-                        print('    - Adjusted SIMILARITY_THRESHOLD -> 0.35 (optimal cross-domain RAG)')
+                    if s_val < 0.45 or s_val > 0.70:
+                        l = 'SIMILARITY_THRESHOLD=\"0.50\"\n'
+                        print('    - Adjusted SIMILARITY_THRESHOLD -> 0.50 (optimal high-confidence RAG)')
                 except Exception:
                     pass
         new_config.append(l)

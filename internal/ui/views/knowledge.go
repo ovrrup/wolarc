@@ -321,6 +321,28 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
+func getFileTypeIcon(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus", ".wma":
+		return "🎵 "
+	case ".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v":
+		return "🎬 "
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg", ".tiff":
+		return "🖼️ "
+	case ".py", ".go", ".rs", ".js", ".ts", ".html", ".css", ".json", ".yaml", ".yml", ".sh", ".sql", ".c", ".cpp":
+		return "💻 "
+	case ".pdf", ".docx", ".epub", ".rtf", ".odt":
+		return "📕 "
+	case ".pptx", ".xlsx", ".csv", ".tsv", ".ods":
+		return "📊 "
+	case ".md", ".txt", ".rst", ".org":
+		return "📝 "
+	default:
+		return "📄 "
+	}
+}
+
 func (m KnowledgeModel) Init() tea.Cmd {
 	return m.Spinner.Tick
 }
@@ -423,7 +445,7 @@ func (m KnowledgeModel) View() string {
 	docList.WriteString(styles.HeaderStyle.Render("INDEXED DOCUMENTS") + "\n\n")
 
 	if len(m.Docs) == 0 {
-		docList.WriteString(styles.DescStyle.Render("No documents indexed yet.\nPlace .txt, .md, or .pdf files into:\n" + m.Config.KnowledgeDir + "\nthen press 'i' to index."))
+		docList.WriteString(styles.DescStyle.Render("No knowledge indexed yet.\nDrop documents, audio, video, photos, or code into:\n" + m.Config.KnowledgeDir + "\nthen press 'i' to vectorize."))
 	} else {
 		maxItems := 8
 		start := 0
@@ -449,9 +471,11 @@ func (m KnowledgeModel) View() string {
 				timeAgo = doc.LastUpdated.Format("Jan 02 15:04")
 			}
 
-			line := fmt.Sprintf("%s%-24s %s (%s)",
+			icon := getFileTypeIcon(doc.Filename)
+			line := fmt.Sprintf("%s%s%-22s %s (%s)",
 				cursor,
-				itemStyle.Render(truncate(doc.Filename, 24)),
+				icon,
+				itemStyle.Render(truncate(doc.Filename, 22)),
 				styles.KeyStyle.Render(fmt.Sprintf("%3d chunks", doc.ChunkCount)),
 				styles.DescStyle.Render(timeAgo),
 			)

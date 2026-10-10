@@ -37,10 +37,10 @@ def load_cfg():
         "EMBED_MODEL": "embed-model",
         "DB_FILE": os.path.expanduser("~/knowledge_db.json"),
         "METRICS_FILE": os.path.expanduser("~/.wola_metrics.json"),
-        "TEMPERATURE": 0.3,
-        "SIMILARITY_THRESHOLD": 0.35,
+        "TEMPERATURE": 0.6,
+        "SIMILARITY_THRESHOLD": 0.50,
         "TOP_K": 2,
-        "SYSTEM_PROMPT": "Answer directly and accurately."
+        "SYSTEM_PROMPT": "You are an intelligent, perceptive assistant. Answer using your own rich knowledge base, reasoning, and creativity. When personal background notes or memories are available, weave them naturally into your response to personalize it without robotic quotes or disclaimers."
     }
     if os.path.exists(CONFIG_PATH):
         try:
@@ -53,9 +53,7 @@ def load_cfg():
                         if k in ["TEMPERATURE"]:
                             cfg[k] = float(v)
                         elif k in ["SIMILARITY_THRESHOLD"]:
-                            val = float(v)
-                            # Migrate legacy high threshold (0.65+) to optimal cross-domain threshold (0.35)
-                            cfg[k] = 0.35 if val >= 0.65 else val
+                            cfg[k] = float(v)
                         elif k in ["TOP_K"]:
                             cfg[k] = int(v)
                         elif k in ["DB_FILE", "METRICS_FILE"]:
@@ -233,7 +231,26 @@ def load_vector_store(db_file):
     _VECTOR_STORE = {"mtime": mtime, "matrix": matrix, "metadata": metadata}
     return matrix, metadata
 
+def is_conversational_or_generic(query: str) -> bool:
+    clean = re.sub(r'[^\w\s]', '', query.strip().lower())
+    words = clean.split()
+    if not words:
+        return True
+    common_short = {
+        "hi", "hello", "hey", "hola", "yo", "sup", "greetings", "good morning",
+        "good afternoon", "good evening", "how are you", "how are ya", "who are you",
+        "what can you do", "help", "thanks", "thank you", "thx", "bye", "goodbye",
+        "see you", "ok", "okay", "cool", "great", "nice", "yes", "no", "yep", "nope",
+        "test", "ping"
+    }
+    if clean in common_short or (len(words) <= 3 and any(w in ["hi", "hello", "hey", "thanks", "bye"] for w in words)):
+        return True
+    return False
+
 def search_knowledge(query, cfg):
+    if is_conversational_or_generic(query):
+        return []
+
     db_file = cfg["DB_FILE"]
     matrix, metadata = load_vector_store(db_file)
     if matrix is None or len(metadata) == 0:
@@ -253,19 +270,34 @@ def search_knowledge(query, cfg):
 
     # Instant vectorized similarity calculation across all chunks
     sims = np.dot(matrix, q_norm)
-    threshold = cfg["SIMILARITY_THRESHOLD"]
-    top_k = cfg["TOP_K"]
+    threshold = float(cfg.get("SIMILARITY_THRESHOLD", 0.50))
+    effective_threshold = max(0.48, threshold)
+    top_k = int(cfg.get("TOP_K", 2))
 
-    matched_indices = np.where(sims >= threshold)[0]
+    matched_indices = np.where(sims >= effective_threshold)[0]
     if len(matched_indices) == 0:
         return []
 
     sorted_sub = matched_indices[np.argsort(-sims[matched_indices])]
+    best_score = float(sims[sorted_sub[0]])
+    if best_score < 0.48:
+        return []
+
     results = []
-    for idx in sorted_sub[:top_k]:
+    seen_texts = set()
+    for idx in sorted_sub:
         score = float(sims[idx])
+        # Filter out low-similarity tail noise
+        if score < best_score * 0.85:
+            break
         meta = metadata[idx]
-        results.append((score, meta["text"], meta["filename"]))
+        text = meta["text"].strip()
+        if text in seen_texts:
+            continue
+        seen_texts.add(text)
+        results.append((score, text, meta["filename"]))
+        if len(results) >= top_k:
+            break
 
     return results
 
@@ -283,31 +315,53 @@ def build_rag_prompt(messages, cfg):
 
     log_think_event("PROMPT_START", last_user_msg)
     valid_chunks = search_knowledge(last_user_msg, cfg)
-    context_text = ""
+
+    # 1. Preserve any custom system instructions provided by user/client
+    user_system_prompts = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            c = msg.get("content", "")
+            if isinstance(c, str) and c.strip():
+                user_system_prompts.append(c.strip())
+
+    base_system = cfg["SYSTEM_PROMPT"]
+    if user_system_prompts:
+        base_system = "\n\n".join(user_system_prompts)
+
+    # 2. Formulate enriched intelligent system prompt with personalized memory
+    system_sections = [base_system]
+
     if valid_chunks:
-        context_text = "\n\n=== RELEVANT CONTEXT FROM USER NOTES ===\n"
+        log_think_event("RAG_MATCH", f"Found {len(valid_chunks)} verified knowledge chunks")
+        memory_lines = ["\n[Personal Knowledge & Memory Context]"]
+        memory_lines.append("The user has stored the following personal background files, notes, and media. Use this information seamlessly to personalize and ground your answer:")
+        memory_lines.append("──────────────────────────────────────────────────────────────────")
         for score, text, name in valid_chunks:
             log_think_event("RAG_MATCH", f"[{name}] Similarity: {score:.3f}")
-            context_text += f"[{name} | Match: {score:.2f}]:\n{text}\n\n"
-        context_text += "=== END OF NOTES ===\n\n"
+            memory_lines.append(f"• Source: {name} (Relevance: {score * 100:.1f}%)\n{text}\n")
+        memory_lines.append("──────────────────────────────────────────────────────────────────")
+        memory_lines.append("Guidelines for responding with this context:")
+        memory_lines.append("1. Answer using your own foundational intelligence, logic, and reasoning as the primary driver.")
+        memory_lines.append("2. Seamlessly blend the personal facts, preferences, and context above to give a tailored, personalized answer.")
+        memory_lines.append("3. NEVER recite 'According to your notes' or 'Based on the provided documents' unless explicitly asked.")
+        memory_lines.append("4. If the question is outside this context, answer thoroughly and creatively using your full intelligence without mentioning any missing data.")
+        system_sections.append("\n".join(memory_lines))
     else:
-        log_think_event("RAG_MATCH", "None (Using base model intelligence)")
+        log_think_event("RAG_MATCH", "None (Operating with autonomous general intelligence)")
+        system_sections.append(
+            "\n[Operating Mode: Autonomous Intelligence]\n"
+            "Respond using your own comprehensive knowledge, analytical reasoning, and creativity. "
+            "Be articulate, direct, insightful, and helpful."
+        )
 
-    last_user_idx = None
-    for idx in range(len(messages) - 1, -1, -1):
-        if messages[idx].get("role") == "user":
-            last_user_idx = idx
-            break
+    augmented_system_prompt = "\n\n".join(system_sections)
 
-    modified_messages = [{"role": "system", "content": cfg["SYSTEM_PROMPT"]}]
-    for idx, msg in enumerate(messages):
+    # 3. Construct clean message list (user message is NOT polluted or modified!)
+    modified_messages = [{"role": "system", "content": augmented_system_prompt}]
+    for msg in messages:
         if msg.get("role") != "system":
-            if idx == last_user_idx and context_text:
-                new_msg = dict(msg)
-                new_msg["content"] = f"{context_text}Question: {last_user_msg}"
-                modified_messages.append(new_msg)
-            else:
-                modified_messages.append(msg)
+            modified_messages.append(msg)
+
     return modified_messages
 
 def get_active_tunnel_url():

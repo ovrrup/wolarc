@@ -289,22 +289,36 @@ Wolarc's background indexer automatically watches your notes directory and index
 - **Termux**: `~/storage/shared/Documents/agent_knowledge` (maps to Android internal storage `/sdcard/Documents/agent_knowledge`).
 - **Linux**: `~/Documents/agent_knowledge`.
 
-You can create markdown files, text notes, or PDFs in this folder using your favorite note-taking apps on your phone (like Obsidian, Markor, or standard text editors).
+### Supported File Formats (Zero Limitations)
+You can drop virtually any file type into your knowledge directory:
+- 📝 **Notes & Documents**: `.md`, `.txt`, `.pdf`, `.docx` (Word), `.epub` (E-books), `.rtf`, `.odt`, `.html`, `.tex`, `.org`
+- 🎵 **Audio Recordings & Music**: `.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`, `.opus`, `.aac`, `.wma` (extracts metadata, duration, artist, lyrics, and companion transcripts `.lrc`/`.srt`/`.txt`)
+- 🎬 **Video Media**: `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv` (extracts container metadata, duration, resolution, chapters, and embedded/companion subtitles `.srt`/`.vtt`)
+- 🖼️ **Photos, Diagrams & Graphics**: `.jpg`, `.jpeg`, `.png`, `.webp`, `.svg`, `.gif`, `.bmp` (extracts EXIF camera tags, date taken, GPS coordinates, dimensions, captions, and Tesseract OCR visual text)
+- 📊 **Office Sheets & Slides**: `.pptx` (slide text), `.xlsx` (tables & cell strings), `.csv`, `.tsv`, `.ods`
+- 💻 **Source Code & Scripts**: `.py`, `.js`, `.ts`, `.html`, `.css`, `.json`, `.yaml`, `.toml`, `.sql`, `.sh`, `.c`, `.cpp`, `.rs`, `.go`, `.java`, etc.
+- 📦 **Universal Fallback**: Any binary or data file is parsed for printable text sequences and indexed.
+
+### Autonomous Intelligence & Personalized Memory
+Unlike basic RAG systems that merely quote raw document excerpts or say "The notes do not say this", Wolarc's AI operates with **foundational autonomy and intelligence**:
+1. **Intelligence First**: The model thinks critically and answers using its own vast pre-trained capabilities and logic.
+2. **Personalized Context**: Verified chunks from your personal files and media are supplied in the background as personal memory context.
+3. **Natural Synthesis**: The model seamlessly weaves your facts, code snippets, and preferences into responses without robotic disclaimers.
 
 ### Indexing CLI Commands (`wola.i`)
 ```bash
-# Check indexer status, total chunks, and document count
+# Check indexer status, total chunks, and document count with media icons
 wola.i status
 
 # Manually add a file or folder and index it immediately
-wola.i add ~/storage/shared/Documents/my_meeting_notes.md
-wola.i add /path/to/documents_folder/
+wola.i add ~/storage/shared/Documents/meeting_recording.mp3
+wola.i add /path/to/media_or_docs_folder/
 
 # Test semantic search query directly from terminal
 wola.i search "What are the project deliverables?"
 ```
 
-Whenever you chat with Wolarc, it searches `knowledge_db.json`, retrieves the most relevant context chunks, and injects them into the prompt with source citations.
+Whenever you chat with Wolarc (via TUI, Web UI, terminal, or remote clients), it semantically discovers matching context and integrates it into the AI's personal memory.
 
 ---
 

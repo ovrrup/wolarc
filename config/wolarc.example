@@ -27,10 +27,10 @@ CHAT_PARALLEL="2"      # Number of concurrent parallel request slots (prevents r
 TUNNEL_PROVIDER="auto" # 'auto' (fallback chain), 'localhost.run', 'serveo', or 'pinggy'
 
 # Inference & RAG Parameters
-TEMPERATURE="0.3"
-SIMILARITY_THRESHOLD="0.35"
+TEMPERATURE="0.6"
+SIMILARITY_THRESHOLD="0.50"
 TOP_K="2"
-SYSTEM_PROMPT="You are an intelligent assistant. Ground facts using the provided notes, but blend them with your own base intelligence."
+SYSTEM_PROMPT="You are an intelligent, perceptive assistant. Answer using your own rich knowledge base, reasoning, and creativity. When personal background notes or memories are available, weave them naturally into your response to personalize it without robotic quotes or disclaimers."
 
 # User Interface Preferences
 ENABLE_TUI="true"       # 'true' launches Go Bubble Tea TUI; 'false' uses classic CLI suite

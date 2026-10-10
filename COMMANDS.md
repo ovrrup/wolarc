@@ -280,8 +280,20 @@ wola.i add /path/to/folder/
 wola.i search "How do I configure network settings?"
 ```
 
-#### Automatic Indexing Daemon (`indexer.py`):
-Runs in the background watching `KNOWLEDGE_DIR` (default: `~/storage/shared/Documents/agent_knowledge`). When files are created, edited, or removed (`.txt`, `.md`, `.json`, `.pdf`), the indexer automatically chunks documents, generates vector embeddings via port `8081`, and saves them to `~/knowledge_db.json`.
+#### Automatic Universal Indexing Daemon (`indexer.py`):
+Runs in the background watching `KNOWLEDGE_DIR` (default: `~/storage/shared/Documents/agent_knowledge`). When files are created, edited, or removed, the indexer automatically extracts semantic content, chunks it, generates vector embeddings via port `8081`, and saves them to `~/knowledge_db.json`.
+
+**Supported File Formats (Zero Limitations):**
+- **Documents & E-Books**: `.pdf`, `.docx`, `.epub`, `.rtf`, `.odt`, `.md`, `.txt`, `.html`, `.tex`, `.org`
+- **Audio Recordings & Music**: `.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`, `.opus`, `.aac`, `.wma` (extracts ID3/RIFF/Vorbis metadata, duration, artist, lyrics, and companion transcripts `.lrc`/`.srt`/`.txt`)
+- **Video Media**: `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv` (extracts container metadata, resolution, chapters, embedded/companion subtitles `.srt`/`.vtt`)
+- **Photos & Graphics**: `.jpg`, `.jpeg`, `.png`, `.webp`, `.svg`, `.gif`, `.bmp` (extracts EXIF camera tags, date taken, GPS coordinates, dimensions, captions, and Tesseract OCR visual text)
+- **Office Sheets & Slides**: `.pptx` (slide text), `.xlsx` (tables & cell strings), `.csv`, `.tsv`, `.ods`
+- **Source Code & Configs**: `.py`, `.js`, `.ts`, `.html`, `.css`, `.json`, `.yaml`, `.toml`, `.sql`, `.sh`, `.c`, `.cpp`, `.rs`, `.go`, `.java`, etc.
+- **Universal Fallback**: Any text or binary data file is automatically analyzed and indexed.
+
+#### Personalized Memory & Base Intelligence Blending:
+The local model prioritizes its own foundational intelligence, logic, and creativity. Retrieved file memories are passed as personal context in the system instructions, allowing the model to respond naturally and personally without robotic quoting or awkward "according to the notes" disclaimers.
 
 ---
 

@@ -511,11 +511,10 @@ textarea {
     <div class="welcome-icon">🐺</div>
     <div class="welcome-title">Wola Local Autonomous Gateway</div>
     <div class="welcome-sub">
-      Chat directly with your on-device local model and retrieve private notes.
-      Works 100% offline — no internet service or Wi-Fi router required.
+      Chat directly with your on-device AI node, powered by autonomous reasoning and personalized with your private knowledge (documents, audio, video, photos, and code). Works 100% offline.
     </div>
     <div class="starter-grid">
-      <div class="starter-pill" onclick="sendPrompt('What information is indexed in my local knowledge base?')">📚 Query indexed notes</div>
+      <div class="starter-pill" onclick="sendPrompt('What information is indexed in my local knowledge base?')">📚 Explore personal knowledge</div>
       <div class="starter-pill" onclick="sendPrompt('Explain how local RAG vector search works.')">🧠 Explain local RAG</div>
       <div class="starter-pill" onclick="sendPrompt('Write a clean Python script to check system telemetry.')">⚡ Python telemetry script</div>
       <div class="starter-pill" onclick="sendPrompt('How can I connect my laptop to this phone via Hotspot?')">📱 Hotspot pairing steps</div>
@@ -526,7 +525,7 @@ textarea {
 <div class="input-area">
   <div class="input-box-wrapper">
     <div class="input-row">
-      <textarea id="prompt-input" rows="1" placeholder="Type a message or query your notes (Shift+Enter for newline)..."></textarea>
+      <textarea id="prompt-input" rows="1" placeholder="Ask anything, discuss your documents, media, code (Shift+Enter for newline)..."></textarea>
       <button class="btn-send" id="btn-send" title="Send message">
         <svg id="icon-send" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
         <svg id="icon-stop" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>

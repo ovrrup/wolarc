@@ -157,10 +157,19 @@ else:
         print(f"  Total Docs    : {len(db)}")
         print(f"  Total Chunks  : {total_chunks}")
         print("--------------------------------------------------")
+        def get_icon(fn):
+            e = os.path.splitext(fn)[1].lower()
+            if e in [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".opus", ".aac"]: return "🎵"
+            if e in [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"]: return "🎬"
+            if e in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"]: return "🖼️"
+            if e in [".py", ".go", ".rs", ".js", ".ts", ".sh", ".json", ".yaml"]: return "💻"
+            if e in [".pdf", ".docx", ".epub", ".rtf", ".odt"]: return "📕"
+            if e in [".pptx", ".xlsx", ".csv", ".tsv"]: return "📊"
+            return "📄"
         for f_path, data in db.items():
             name = data.get("filename", os.path.basename(f_path))
             chunks = len(data.get("chunks", []))
-            print(f"  • {name} ({chunks} chunks)")
+            print(f"  • {get_icon(name)} {name} ({chunks} chunks)")
         print("==================================================")
     except Exception as e:
         print(f"[-] Error reading database: {e}")
@@ -174,7 +183,7 @@ else:
         echo -e "${C_BOLD}Wola Vector Indexer & Knowledge Manager${C_RESET}"
         echo "Usage:"
         echo "  wola.i status             Inspect documents and chunk statistics"
-        echo "  wola.i add <file|dir>     Import document/folder and index immediately"
+        echo "  wola.i add <file|dir>     Import notes, media, audio, images or code into knowledge base"
         echo "  wola.i search \"<query>\"   Test vector similarity retrieval"
         echo "  wola.i sync               Trigger incremental scan of knowledge directory"
         echo "  wola.i rebuild            Purge database and re-vectorize from scratch"
