@@ -59,6 +59,9 @@ else
 fi
 
 MODE="interactive"
+INSTALL_LLAMA=""
+INSTALL_GO_TUI=""
+
 while [ $# -gt 0 ]; do
     case "$1" in
         "--upgrade"|"-u") MODE="upgrade" ;;
@@ -66,8 +69,12 @@ while [ $# -gt 0 ]; do
         "--adjust") MODE="adjust" ;;
         "-y"|"--yes"|"--unattended") MODE="unattended" ;;
         "--prefix") TARGET_BIN="$2"; shift ;;
+        "--tui"|"--with-tui") INSTALL_GO_TUI="true" ;;
+        "--no-tui"|"--without-tui") INSTALL_GO_TUI="false" ;;
+        "--llama"|"--with-llama") INSTALL_LLAMA="true" ;;
+        "--no-llama"|"--without-llama") INSTALL_LLAMA="false" ;;
         "--help"|"-h")
-            echo "Usage: bash install.sh [--upgrade | --clean | --adjust | -y | --prefix <path>]"
+            echo "Usage: bash install.sh [--upgrade | --clean | --adjust | -y | --prefix <path> | --[no-]tui | --[no-]llama]"
             exit 0
             ;;
     esac
@@ -122,68 +129,8 @@ diagnose_hardware() {
 check_dependencies() {
     print_step "2" "System Dependencies & Engine Check"
 
-    local missing=()
-    for cmd in python3 git curl; do
-        if ! command -v "$cmd" >/dev/null 2>&1; then
-            missing+=("$cmd")
-        fi
-    done
-    if ! command -v ssh >/dev/null 2>&1; then
-        missing+=("openssh")
-    fi
-    if ! command -v go >/dev/null 2>&1; then
-        if [ "$IS_TERMUX" = true ]; then
-            missing+=("golang")
-        elif command -v apt-get >/dev/null 2>&1; then
-            missing+=("golang-go")
-        else
-            missing+=("golang")
-        fi
-    fi
-
-    # Auto-include llama-cpp for Termux if missing
-    if [ "$IS_TERMUX" = true ] && ! command -v llama-server >/dev/null 2>&1; then
-        missing+=("llama-cpp")
-    fi
-
-    if [ ${#missing[@]} -gt 0 ]; then
-        echo -e "  ${C_RED}[-] Missing packages: ${missing[*]}${C_RESET}"
-        if [ "$IS_TERMUX" = true ]; then
-            echo -e "  [*] Installing missing packages via pkg..."
-            pkg install -y "${missing[@]}"
-        elif command -v apt-get >/dev/null 2>&1; then
-            echo -e "  [*] Installing missing packages via apt..."
-            sudo apt-get update -qq && sudo apt-get install -y "${missing[@]}"
-        elif command -v pacman >/dev/null 2>&1; then
-            echo -e "  [*] Installing missing packages via pacman..."
-            sudo pacman -Sy --noconfirm "${missing[@]}"
-        elif command -v dnf >/dev/null 2>&1; then
-            echo -e "  [*] Installing missing packages via dnf..."
-            sudo dnf install -y "${missing[@]}"
-        else
-            echo -e "  ${C_RED}[!] Please install missing packages using your package manager.${C_RESET}"
-            exit 1
-        fi
-    else
-        echo -e "  ${C_GREEN}✓ Core utilities & Go compiler verified (python3, git, curl, ssh, go)${C_RESET}"
-    fi
-
-    # Optional PDF support
-    if ! command -v pdftotext >/dev/null 2>&1; then
-        echo -e "  ${C_DIM}• 'pdftotext' not found (PDF parsing disabled). Install poppler to enable.${C_RESET}"
-        if [ "$IS_TERMUX" = true ] && [ "$MODE" = "interactive" ]; then
-            read -p "    Install poppler now for PDF support? (y/N): " pdf_ans
-            if [[ "$pdf_ans" =~ ^[Yy] ]]; then
-                pkg install -y poppler
-            fi
-        fi
-    else
-        echo -e "  ${C_GREEN}✓ PDF document extractor available (pdftotext)${C_RESET}"
-    fi
-
-    # Llama-server engine detection & auto-installation
+    # Llama-server engine detection
     local llama_path=""
-
     # Clean up stale/broken symlink if present
     if [ -L "$TARGET_BIN/llama-server" ] && [ ! -e "$TARGET_BIN/llama-server" ]; then
         rm -f "$TARGET_BIN/llama-server"
@@ -199,11 +146,116 @@ check_dependencies() {
         ln -sf "$llama_path" "$TARGET_BIN/llama-server" 2>/dev/null || true
     fi
 
-    # If still not found, download prebuilt binary release
-    if [ -z "$llama_path" ]; then
-        echo -e "  ${C_YELLOW}[*] llama-server not found. Auto-installing prebuilt engine...${C_RESET}"
+    # 1. Permission for Llama Inference Engine
+    if [ -z "$INSTALL_LLAMA" ]; then
+        if [ -n "$llama_path" ]; then
+            INSTALL_LLAMA="skip"
+            echo -e "  ${C_GREEN}✓ Existing llama-server engine verified:${C_RESET} ${llama_path}"
+        elif [ "$MODE" = "interactive" ]; then
+            echo -e "\n  ${C_BOLD}${C_CYAN}─── [Permission 1/2] Llama Inference Engine ───${C_RESET}"
+            echo -e "  Wolarc requires 'llama-server' (llama.cpp) to run GGUF neural models locally."
+            echo -e "  Would you like the setup wizard to install llama-server and required llama engine files?"
+            echo -e "    ${C_GREEN}[y] Yes${C_RESET} - Install llama-server (${IS_TERMUX:+via pkg install llama-cpp}${IS_TERMUX:-via official prebuilt release})"
+            echo -e "    ${C_YELLOW}[n] No${C_RESET}  - Skip llama-server (configure LLAMA_BIN manually in ~/.wolarc later)"
+            read -p "  Install llama-server engine now? [Y/n]: " llama_ans
+            llama_ans=${llama_ans:-y}
+            if [[ "$llama_ans" =~ ^[Yy] ]]; then
+                INSTALL_LLAMA="true"
+            else
+                INSTALL_LLAMA="false"
+            fi
+        else
+            INSTALL_LLAMA="true"
+        fi
+    fi
+
+    # 2. Permission for Experimental Go Designed TUI
+    if [ -z "$INSTALL_GO_TUI" ]; then
+        if [ "$MODE" = "interactive" ]; then
+            echo -e "\n  ${C_BOLD}${C_CYAN}─── [Permission 2/2] Experimental Go Designed TUI ───${C_RESET}"
+            echo -e "  Wolarc includes an experimental modern Go Bubble Tea terminal UI ('wola-tui')."
+            echo -e "  ${C_YELLOW}Notice: This is an experimental design that can be removed completely.${C_RESET}"
+            echo -e "  You can choose to install the Go TUI, or continue with the classic lightweight CLI suite without it."
+            echo -e "    ${C_GREEN}[1] Yes${C_RESET} - Install Go Bubble Tea TUI & Go files (Full modern interface) [Recommended]"
+            echo -e "    ${C_YELLOW}[2] No${C_RESET}  - Continue without Go TUI (Use classic lightweight CLI suite only)"
+            read -p "  Install Go TUI and required Go files? [1/2] (default: 1): " tui_ans
+            tui_ans=${tui_ans:-1}
+            if [[ "$tui_ans" == "1" ]] || [[ "$tui_ans" =~ ^[Yy] ]]; then
+                INSTALL_GO_TUI="true"
+            else
+                INSTALL_GO_TUI="false"
+            fi
+        else
+            INSTALL_GO_TUI="true"
+        fi
+    fi
+
+    local missing=()
+    for cmd in python3 git curl; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+    if ! command -v ssh >/dev/null 2>&1; then
+        missing+=("openssh")
+    fi
+
+    # Only check/install Go compiler if user wants the Go TUI
+    if [ "$INSTALL_GO_TUI" = "true" ] && ! command -v go >/dev/null 2>&1; then
         if [ "$IS_TERMUX" = true ]; then
-            echo -e "  [*] Installing llama-cpp via Termux package manager..."
+            missing+=("golang")
+        elif command -v apt-get >/dev/null 2>&1; then
+            missing+=("golang-go")
+        else
+            missing+=("golang")
+        fi
+    fi
+
+    # Auto-include llama-cpp for Termux only if user permitted
+    if [ "$IS_TERMUX" = true ] && [ "$INSTALL_LLAMA" = "true" ] && ! command -v llama-server >/dev/null 2>&1; then
+        missing+=("llama-cpp")
+    fi
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo -e "\n  ${C_RED}[-] Installing missing system packages: ${missing[*]}${C_RESET}"
+        if [ "$IS_TERMUX" = true ]; then
+            pkg install -y "${missing[@]}"
+        elif command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y "${missing[@]}"
+        elif command -v pacman >/dev/null 2>&1; then
+            sudo pacman -Sy --noconfirm "${missing[@]}"
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y "${missing[@]}"
+        else
+            echo -e "  ${C_RED}[!] Please install missing packages using your package manager.${C_RESET}"
+            exit 1
+        fi
+    fi
+
+    echo -e "  ${C_GREEN}✓ Core utilities verified (python3, git, curl, ssh)${C_RESET}"
+    if [ "$INSTALL_GO_TUI" = "true" ]; then
+        echo -e "  ${C_GREEN}✓ Go compiler verified for TUI build${C_RESET}"
+    else
+        echo -e "  ${C_DIM}• Go compiler skipped (Classic CLI mode selected)${C_RESET}"
+    fi
+
+    # Optional PDF support
+    if ! command -v pdftotext >/dev/null 2>&1; then
+        echo -e "  ${C_DIM}• 'pdftotext' not found (PDF parsing disabled). Install poppler to enable.${C_RESET}"
+        if [ "$IS_TERMUX" = true ] && [ "$MODE" = "interactive" ]; then
+            read -p "    Install poppler now for PDF support? (y/N): " pdf_ans
+            if [[ "$pdf_ans" =~ ^[Yy] ]]; then
+                pkg install -y poppler
+            fi
+        fi
+    else
+        echo -e "  ${C_GREEN}✓ PDF document extractor available (pdftotext)${C_RESET}"
+    fi
+
+    # Install llama-server prebuilt if user approved and still missing
+    if [ "$INSTALL_LLAMA" = "true" ] && [ -z "$llama_path" ]; then
+        echo -e "  ${C_YELLOW}[*] Installing prebuilt llama-server engine...${C_RESET}"
+        if [ "$IS_TERMUX" = true ]; then
             pkg install -y llama-cpp >/dev/null 2>&1 || true
             if command -v llama-server >/dev/null 2>&1; then
                 llama_path=$(command -v llama-server)
@@ -248,6 +300,9 @@ check_dependencies() {
 
     if [ -n "$llama_path" ]; then
         echo -e "  ${C_GREEN}✓ llama-server verified & ready:${C_RESET} ${llama_path}"
+    elif [ "$INSTALL_LLAMA" = "false" ]; then
+        echo -e "  ${C_YELLOW}• llama-server skipped by user permission.${C_RESET}"
+        echo -e "    ${C_DIM}Configure LLAMA_BIN later in ~/.wolarc or run 'pkg install llama-cpp'.${C_RESET}"
     else
         echo -e "  ${C_YELLOW}⚠ 'llama-server' binary not found.${C_RESET}"
         echo -e "    ${C_DIM}Run 'pkg install llama-cpp' on Termux or install llama-server into PATH.${C_RESET}"
@@ -629,15 +684,16 @@ set_val('CHATS_DIR', '$chats_dir', '$HOME/.wolarc')
     # Save repository source path for auto-updates & reconcile LLAMA_BIN
     python3 -c "
 import sys, os, re, shutil
-path = '$HOME/.wolarc'
+src_dir, target_bin, user_tui = sys.argv[1], sys.argv[2], sys.argv[3]
+path = os.path.expanduser('~/.wolarc')
 if os.path.exists(path):
     with open(path, 'r') as f: lines = f.readlines()
     pat = re.compile(r'^\s*WOLA_SOURCE_DIR=.*$')
     has_it = any(pat.match(l) for l in lines)
     if has_it:
-        lines = [f'WOLA_SOURCE_DIR=\"$DIR\"\n' if pat.match(l) else l for l in lines]
+        lines = [f'WOLA_SOURCE_DIR=\"{src_dir}\"\n' if pat.match(l) else l for l in lines]
     else:
-        lines.append(f'WOLA_SOURCE_DIR=\"$DIR\"\n')
+        lines.append(f'WOLA_SOURCE_DIR=\"{src_dir}\"\n')
 
     # Reconcile LLAMA_BIN to verified binary if missing or invalid
     llama_pat = re.compile(r'^\s*LLAMA_BIN\s*=\s*[\"\'\s]*(.*?)[\"\'\s]*$')
@@ -648,16 +704,22 @@ if os.path.exists(path):
             llama_val = os.path.expanduser(m.group(1).strip())
             break
     if not llama_val or (llama_val != 'llama-server' and not os.path.exists(llama_val)):
-        resolved_bin = 'llama-server' if shutil.which('llama-server') else os.path.join('$TARGET_BIN', 'llama-server')
+        resolved_bin = 'llama-server' if shutil.which('llama-server') else os.path.join(target_bin, 'llama-server')
         lines = [f'LLAMA_BIN=\"{resolved_bin}\"\n' if llama_pat.match(l) else l for l in lines]
 
-    # Default ENABLE_TUI to true if absent
+    # Sync ENABLE_TUI according to installer choice
     tui_pat = re.compile(r'^\s*ENABLE_TUI=.*$')
-    if not any(tui_pat.match(l) for l in lines):
-        lines.append('ENABLE_TUI=\"true\"\n')
+    if user_tui in ('true', 'false'):
+        if any(tui_pat.match(l) for l in lines):
+            lines = [f'ENABLE_TUI=\"{user_tui}\"\n' if tui_pat.match(l) else l for l in lines]
+        else:
+            lines.append(f'ENABLE_TUI=\"{user_tui}\"\n')
+    else:
+        if not any(tui_pat.match(l) for l in lines):
+            lines.append('ENABLE_TUI=\"true\"\n')
 
     with open(path, 'w') as f: f.writelines(lines)
-" 2>/dev/null
+" "$DIR" "$TARGET_BIN" "$INSTALL_GO_TUI" 2>/dev/null
 }
 
 # -------------------------------------------------------------
@@ -700,44 +762,51 @@ deploy_binaries() {
     ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.selfdestruct"
     ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.nuke"
 
-    # Build and deploy Go Bubble Tea TUI
-    echo -e "  [*] Building Go Bubble Tea TUI (wola-tui)..."
-    local tui_installed=false
+    # Build and deploy Go Bubble Tea TUI if permitted
+    if [ "$INSTALL_GO_TUI" = "true" ]; then
+        echo -e "  [*] Building Go Bubble Tea TUI (wola-tui)..."
+        local tui_installed=false
 
-    if command -v go >/dev/null 2>&1 && [ -d "$DIR/cmd/wola-tui" ]; then
-        export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
-        [ ! -d "$TMPDIR" ] && export TMPDIR="/tmp"
-        mkdir -p "$DIR/bin"
-        if (cd "$DIR" && go build -ldflags="-s -w" -o "$DIR/bin/wola-tui" ./cmd/wola-tui); then
-            cp "$DIR/bin/wola-tui" "$TARGET_BIN/wola-tui"
-            chmod +x "$TARGET_BIN/wola-tui"
-            tui_installed=true
-            echo -e "  ${C_GREEN}✓ Successfully built and installed Go TUI (${TARGET_BIN}/wola-tui)${C_RESET}"
+        if command -v go >/dev/null 2>&1 && [ -d "$DIR/cmd/wola-tui" ]; then
+            export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+            [ ! -d "$TMPDIR" ] && export TMPDIR="/tmp"
+            mkdir -p "$DIR/bin"
+            if (cd "$DIR" && go build -ldflags="-s -w" -o "$DIR/bin/wola-tui" ./cmd/wola-tui); then
+                cp "$DIR/bin/wola-tui" "$TARGET_BIN/wola-tui"
+                chmod +x "$TARGET_BIN/wola-tui"
+                tui_installed=true
+                echo -e "  ${C_GREEN}✓ Successfully built and installed Go TUI (${TARGET_BIN}/wola-tui)${C_RESET}"
+            fi
         fi
-    fi
 
-    if [ "$tui_installed" = false ]; then
-        if [ -f "$DIR/dist/wola-tui" ]; then
-            cp "$DIR/dist/wola-tui" "$TARGET_BIN/wola-tui"
-            chmod +x "$TARGET_BIN/wola-tui"
-            tui_installed=true
-        elif [ -f "$DIR/dist/wola-tui-linux-arm64" ] && [ "$IS_TERMUX" = "true" ]; then
-            cp "$DIR/dist/wola-tui-linux-arm64" "$TARGET_BIN/wola-tui"
-            chmod +x "$TARGET_BIN/wola-tui"
-            tui_installed=true
-        elif [ -f "$DIR/bin/wola-tui" ]; then
-            cp "$DIR/bin/wola-tui" "$TARGET_BIN/wola-tui"
-            chmod +x "$TARGET_BIN/wola-tui"
-            tui_installed=true
+        if [ "$tui_installed" = false ]; then
+            if [ -f "$DIR/dist/wola-tui" ]; then
+                cp "$DIR/dist/wola-tui" "$TARGET_BIN/wola-tui"
+                chmod +x "$TARGET_BIN/wola-tui"
+                tui_installed=true
+            elif [ -f "$DIR/dist/wola-tui-linux-arm64" ] && [ "$IS_TERMUX" = "true" ]; then
+                cp "$DIR/dist/wola-tui-linux-arm64" "$TARGET_BIN/wola-tui"
+                chmod +x "$TARGET_BIN/wola-tui"
+                tui_installed=true
+            elif [ -f "$DIR/bin/wola-tui" ]; then
+                cp "$DIR/bin/wola-tui" "$TARGET_BIN/wola-tui"
+                chmod +x "$TARGET_BIN/wola-tui"
+                tui_installed=true
+            fi
         fi
-    fi
 
-    if [ -f "$TARGET_BIN/wola-tui" ]; then
-        ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola.tui"
-        ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola"
-        echo -e "  ${C_GREEN}✓ Integrated Go TUI: 'wola' and 'wola.tui' -> ${TARGET_BIN}/wola-tui${C_RESET}"
+        if [ -f "$TARGET_BIN/wola-tui" ]; then
+            ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola.tui"
+            ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola"
+            echo -e "  ${C_GREEN}✓ Integrated Go TUI: 'wola' and 'wola.tui' -> ${TARGET_BIN}/wola-tui${C_RESET}"
+        else
+            ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola"
+        fi
     else
+        echo -e "  ${C_DIM}• Skipping Go TUI compilation & deployment (Classic CLI mode active).${C_RESET}"
+        rm -f "$TARGET_BIN/wola.tui" "$TARGET_BIN/wola-tui" 2>/dev/null || true
         ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola"
+        echo -e "  ${C_GREEN}✓ Linked classic CLI suite: 'wola' -> ${TARGET_BIN}/wolarc${C_RESET}"
     fi
 
     # Save commit version if in git repo
@@ -757,7 +826,11 @@ post_install() {
     echo -e "  ${C_BOLD}${C_GREEN}✓ WOLARC INSTALLATION COMPLETE!${C_RESET}"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
     echo -e "  ${C_BOLD}Commands Cheatsheet:${C_RESET}"
-    echo -e "    ${C_GREEN}wola${C_RESET}       • Launch Unified Go & Bubble Tea TUI (Everything in one place)"
+    if [ "$INSTALL_GO_TUI" = "true" ] && [ -x "$TARGET_BIN/wola-tui" ]; then
+        echo -e "    ${C_GREEN}wola${C_RESET}       • Launch Unified Go & Bubble Tea TUI (Everything in one place)"
+    else
+        echo -e "    ${C_GREEN}wola${C_RESET}       • Launch Classic Interactive Command Center (wola-h)"
+    fi
     echo -e "    ${C_GREEN}wola.r${C_RESET}     • Start all services (chat, embed, agent API, tunnel)"
     echo -e "    ${C_RED}wola.k${C_RESET}     • Stop all services cleanly"
     echo -e "    ${C_CYAN}wola.d${C_RESET}     • Open real-time Telemetry Dashboard"
@@ -788,13 +861,17 @@ post_install() {
 
     if [ "$MODE" = "interactive" ]; then
         echo ""
-        read -p "Would you like to launch Wolarc TUI (wola) now? (Y/n): " tui_ans
-        tui_ans=${tui_ans:-y}
-        if [[ "$tui_ans" =~ ^[Yy] ]]; then
-            if [ -x "$TARGET_BIN/wola-tui" ]; then
+        if [ "$INSTALL_GO_TUI" = "true" ] && [ -x "$TARGET_BIN/wola-tui" ]; then
+            read -p "Would you like to launch Wolarc TUI (wola) now? (Y/n): " launch_ans
+            launch_ans=${launch_ans:-y}
+            if [[ "$launch_ans" =~ ^[Yy] ]]; then
                 exec "$TARGET_BIN/wola-tui"
-            elif [ -x "$TARGET_BIN/wola" ]; then
-                exec "$TARGET_BIN/wola"
+            fi
+        else
+            read -p "Would you like to launch Wolarc Command Center (wola-h) now? (Y/n): " launch_ans
+            launch_ans=${launch_ans:-y}
+            if [[ "$launch_ans" =~ ^[Yy] ]]; then
+                exec "$TARGET_BIN/wola-h"
             fi
         fi
     fi

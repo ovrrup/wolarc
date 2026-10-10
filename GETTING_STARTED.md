@@ -207,17 +207,22 @@ How would you like to handle existing files and directories?
   [3] Safe Upgrade (Retain existing configuration and proceed)
 ```
 
-You can also pass these modes directly via CLI flags:
+You can also pass setup modes and permissions directly via CLI flags:
 - `bash install.sh --clean`: Clean slate re-install (keeps models).
 - `bash install.sh --adjust`: Auto-reconcile with custom paths and existing databases.
 - `bash install.sh --upgrade`: Non-destructive update.
 - `bash install.sh -y`: Unattended non-interactive install.
+- `bash install.sh --tui` / `--no-tui`: Explicitly enable or skip the experimental Go Bubble Tea TUI.
+- `bash install.sh --llama` / `--no-llama`: Explicitly enable or skip installing the `llama-server` engine.
 
 ---
 
 ### Modern Go TUI Integration (`wola` / `wola-tui`)
 
-Wolarc's primary interface is written in Go with Bubble Tea. During installation, `install.sh` automatically compiles `wola-tui` and symlinks it to `wola`.
+Wolarc includes an experimental modern interface written in Go with Bubble Tea.
+> **Note:** The Go TUI is an experimental design that can be removed completely or opted out of during installation (`--no-tui`). If opted out, the installer skips the ~200MB Go compiler, saves bandwidth/storage, and configures `wola` to launch the classic lightweight interactive shell command center (`wola-h`).
+
+When enabled, `install.sh` compiles `wola-tui` and symlinks it to `wola`.
 
 You can launch the entire suite with just:
 ```bash

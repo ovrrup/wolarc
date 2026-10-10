@@ -91,7 +91,9 @@ cd wolarc
 bash install.sh
 ```
 
-The installer detects existing files and processes and lets you choose between:
+The installer features interactive permission prompts and custom modes:
+- **Llama Inference Engine Prompt (`--llama` / `--no-llama`)**: Asks whether to install `llama-server` and engine files.
+- **Experimental Go TUI Prompt (`--tui` / `--no-tui`)**: Asks whether to install the experimental Go Bubble Tea TUI or continue with the lightweight classic CLI suite without it.
 - **[1] Clean Slate (`--clean`)**: Stops running services, cleans stale locks/logs, removes previous binaries while preserving downloaded models.
 - **[2] Adjust & Merge BETA (`--adjust`)**: Automatically reconciles paths, settings, and databases with existing setups.
 - **[3] Safe Upgrade (`--upgrade`)**: Seamlessly updates scripts and binaries without touching user configs.
