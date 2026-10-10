@@ -437,7 +437,7 @@ setup_python() {
     print_step "4" "Python Dependencies Setup"
 
     if [ -f "$DIR/requirements.txt" ]; then
-        echo -e "  [*] Installing requirements (flask, flask-cors, requests, numpy, watchdog)..."
+        echo -e "  [*] Installing requirements (flask, flask-cors, requests, numpy, watchdog, gunicorn)..."
         pip install -r "$DIR/requirements.txt" --quiet
         echo -e "  ${C_GREEN}✓ Python packages installed successfully.${C_RESET}"
     fi

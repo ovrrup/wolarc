@@ -1,13 +1,22 @@
-import json, os, requests, time
+import json, os, requests, time, threading, signal
 import numpy as np
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 
+try:
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+except Exception:
+    pass
+
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 CONFIG_PATH = os.path.expanduser("~/.wolarc")
 THINKING_LOG = os.path.expanduser("~/.wola_thinking.log")
+
+_THINK_LOCK = threading.Lock()
+_THINK_BUFFER = []
+_LAST_FLUSH = time.time()
 
 def load_cfg():
     cfg = {
@@ -41,7 +50,25 @@ def load_cfg():
             pass
     return cfg
 
+def flush_think_tokens():
+    with _THINK_LOCK:
+        flush_think_tokens_locked()
+
+def flush_think_tokens_locked():
+    global _THINK_BUFFER, _LAST_FLUSH
+    if not _THINK_BUFFER:
+        return
+    text = "".join(_THINK_BUFFER)
+    _THINK_BUFFER = []
+    _LAST_FLUSH = time.time()
+    try:
+        with open(THINKING_LOG, "a", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        pass
+
 def log_think_event(tag, content):
+    flush_think_tokens()
     try:
         with open(THINKING_LOG, "a", encoding="utf-8") as f:
             f.write(f"[{tag}] {content}\n")
@@ -49,11 +76,12 @@ def log_think_event(tag, content):
         pass
 
 def log_think_token(token):
-    try:
-        with open(THINKING_LOG, "a", encoding="utf-8") as f:
-            f.write(token)
-    except Exception:
-        pass
+    global _THINK_BUFFER, _LAST_FLUSH
+    with _THINK_LOCK:
+        _THINK_BUFFER.append(token)
+        now = time.time()
+        if now - _LAST_FLUSH > 0.08 or len(_THINK_BUFFER) >= 8:
+            flush_think_tokens_locked()
 
 def record_metrics(timings, cfg):
     try:
@@ -160,6 +188,10 @@ def load_vector_store(db_file):
 
 def search_knowledge(query, cfg):
     db_file = cfg["DB_FILE"]
+    matrix, metadata = load_vector_store(db_file)
+    if matrix is None or len(metadata) == 0:
+        return []
+
     raw_q = get_query_vector(query, cfg["EMBED_PORT"])
     if not raw_q:
         return []
@@ -168,10 +200,6 @@ def search_knowledge(query, cfg):
     if q_vec.size == 0 or q_norm_val == 0:
         return []
     q_norm = q_vec / q_norm_val
-
-    matrix, metadata = load_vector_store(db_file)
-    if matrix is None or len(metadata) == 0:
-        return []
 
     if matrix.shape[1] != q_norm.size:
         return []
@@ -302,6 +330,19 @@ def list_models():
     except Exception:
         return jsonify({"object": "list", "data": [{"id": "active-model", "object": "model"}]})
 
+@app.after_request
+def after_request(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+    response.headers["Access-Control-Max-Age"] = "86400"
+    return response
+
+@app.route("/chat/completions", methods=["OPTIONS"])
+@app.route("/v1/chat/completions", methods=["OPTIONS"])
+def chat_options():
+    return Response("", status=204)
+
 @app.route("/chat/completions", methods=["POST"])
 @app.route("/v1/chat/completions", methods=["POST"])
 def chat_completions():
@@ -313,10 +354,13 @@ def chat_completions():
     rag_messages = build_rag_prompt(messages, cfg)
     payload = {
         "messages": rag_messages,
-        "temperature": cfg["TEMPERATURE"],
-        "max_tokens": body.get("max_tokens", 1024),
+        "temperature": body.get("temperature", cfg["TEMPERATURE"]),
+        "max_tokens": body.get("max_tokens", 2048),
         "stream": True
     }
+    for opt in ["top_p", "presence_penalty", "frequency_penalty", "stop"]:
+        if opt in body:
+            payload[opt] = body[opt]
 
     chat_url = f"http://127.0.0.1:{cfg['CHAT_PORT']}/v1/chat/completions"
     try:
@@ -328,55 +372,96 @@ def chat_completions():
 
     if client_stream:
         def stream_generator():
-            for raw_line in upstream.iter_lines():
-                if not raw_line:
-                    continue
-                line = raw_line.decode("utf-8", errors="replace")
-                if line.startswith("data: "):
-                    data_str = line[6:].strip()
-                    if data_str != "[DONE]":
-                        try:
-                            parsed = json.loads(data_str)
-                            choices = parsed.get("choices", [])
-                            if choices:
-                                delta = choices[0].get("delta", {})
-                                token = delta.get("content", "") or delta.get("reasoning_content", "")
-                                if token:
-                                    log_think_token(token)
-                            if "timings" in parsed:
-                                record_metrics(parsed["timings"], cfg)
-                        except Exception:
-                            pass
-                yield raw_line + b"\n\n"
-            log_think_event("STREAM_END", "")
+            line_buf = b""
+            last_timings = None
+            try:
+                for chunk in upstream.iter_content(chunk_size=None):
+                    if not chunk:
+                        continue
+                    # Immediately yield raw chunk to client with zero buffering
+                    yield chunk
+                    line_buf += chunk
+                    while b"\n" in line_buf:
+                        raw_line, line_buf = line_buf.split(b"\n", 1)
+                        line_str = raw_line.decode("utf-8", errors="replace").strip()
+                        if line_str.startswith("data: "):
+                            data_str = line_str[6:].strip()
+                            if data_str != "[DONE]":
+                                try:
+                                    parsed = json.loads(data_str)
+                                    choices = parsed.get("choices", [])
+                                    if choices:
+                                        delta = choices[0].get("delta", {})
+                                        token = delta.get("content", "") or delta.get("reasoning_content", "")
+                                        if token:
+                                            log_think_token(token)
+                                    if "timings" in parsed:
+                                        last_timings = parsed["timings"]
+                                except Exception:
+                                    pass
+                log_think_event("STREAM_END", "")
+                flush_think_tokens()
+                if last_timings:
+                    record_metrics(last_timings, cfg)
+            except GeneratorExit:
+                try:
+                    upstream.close()
+                except Exception:
+                    pass
+                log_think_event("STREAM_ABORT", "Client disconnected")
+                flush_think_tokens()
+            except Exception as e:
+                try:
+                    upstream.close()
+                except Exception:
+                    pass
+                log_think_event("STREAM_ERR", str(e))
+                flush_think_tokens()
+            finally:
+                try:
+                    upstream.close()
+                except Exception:
+                    pass
 
-        return Response(stream_generator(), content_type="text/event-stream")
+        resp = Response(stream_generator(), content_type="text/event-stream; charset=utf-8")
+        resp.headers["Cache-Control"] = "no-cache, no-transform"
+        resp.headers["X-Accel-Buffering"] = "no"
+        resp.headers["Connection"] = "keep-alive"
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp
 
     # Aggregated fallback when client does not stream
     full_content = ""
     last_timings = None
-    for raw_line in upstream.iter_lines():
-        if not raw_line:
-            continue
-        line = raw_line.decode("utf-8", errors="replace")
-        if line.startswith("data: "):
-            data_str = line[6:].strip()
-            if data_str != "[DONE]":
-                try:
-                    parsed = json.loads(data_str)
-                    choices = parsed.get("choices", [])
-                    if choices:
-                        delta = choices[0].get("delta", {})
-                        token = delta.get("content", "") or delta.get("reasoning_content", "")
-                        if token:
-                            full_content += token
-                            log_think_token(token)
-                    if "timings" in parsed:
-                        last_timings = parsed["timings"]
-                except Exception:
-                    pass
+    try:
+        for raw_line in upstream.iter_lines():
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8", errors="replace")
+            if line.startswith("data: "):
+                data_str = line[6:].strip()
+                if data_str != "[DONE]":
+                    try:
+                        parsed = json.loads(data_str)
+                        choices = parsed.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            token = delta.get("content", "") or delta.get("reasoning_content", "")
+                            if token:
+                                full_content += token
+                                log_think_token(token)
+                        if "timings" in parsed:
+                            last_timings = parsed["timings"]
+                    except Exception:
+                        pass
+    finally:
+        try:
+            upstream.close()
+        except Exception:
+            pass
 
     log_think_event("STREAM_END", "")
+    flush_think_tokens()
     if last_timings:
         record_metrics(last_timings, cfg)
 
@@ -391,4 +476,36 @@ def chat_completions():
 
 if __name__ == "__main__":
     init_cfg = load_cfg()
-    app.run(host="0.0.0.0", port=int(init_cfg["AGENT_PORT"]), threaded=True)
+    port = int(init_cfg["AGENT_PORT"])
+    try:
+        from gunicorn.app.base import BaseApplication
+        class StandaloneGunicorn(BaseApplication):
+            def __init__(self, app, options=None):
+                self.options = options or {}
+                self.application = app
+                super().__init__()
+            def load_config(self):
+                for k, v in self.options.items():
+                    if k in self.cfg.settings and v is not None:
+                        self.cfg.set(self.cfg.settings[k].name, v)
+            def load(self):
+                return self.application
+            def init_signals(self):
+                super().init_signals()
+                try:
+                    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+                except Exception:
+                    pass
+
+        opts = {
+            "bind": f"0.0.0.0:{port}",
+            "workers": 1,
+            "threads": 8,
+            "timeout": 300,
+            "graceful_timeout": 5,
+            "accesslog": None,
+            "errorlog": None
+        }
+        StandaloneGunicorn(app, opts).run()
+    except Exception:
+        app.run(host="0.0.0.0", port=port, threaded=True)

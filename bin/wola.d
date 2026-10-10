@@ -31,12 +31,18 @@ def cleanup():
 
 atexit.register(cleanup)
 
+_CACHE_PROC = {}
 def get_process_status(name):
+    now = time.time()
+    if name in _CACHE_PROC and (now - _CACHE_PROC[name]["ts"] < 2.5):
+        return _CACHE_PROC[name]["val"]
     try:
         out = subprocess.check_output(["pgrep", "-f", name]).decode().strip().split("\n")
-        return True, len(out), out[0]
+        val = (True, len(out), out[0])
     except Exception:
-        return False, 0, "-"
+        val = (False, 0, "-")
+    _CACHE_PROC[name] = {"ts": now, "val": val}
+    return val
 
 def get_ram_info():
     total_mb, avail_mb = 0, 0
@@ -53,25 +59,45 @@ def get_ram_info():
     pct = int((used_mb / total_mb * 100)) if total_mb > 0 else 0
     return total_mb, used_mb, avail_mb, pct
 
+_CACHE_MODEL = {}
 def get_model_name(port):
+    now = time.time()
+    if port in _CACHE_MODEL and (now - _CACHE_MODEL[port]["ts"] < 20):
+        return _CACHE_MODEL[port]["val"]
+
+    # First check ~/.wolarc to avoid making HTTP requests to llama-server entirely
+    cfg_file = os.path.expanduser("~/.wolarc")
+    if os.path.exists(cfg_file):
+        try:
+            with open(cfg_file, "r") as f:
+                for line in f:
+                    if port == 8080 and line.startswith("CHAT_MODEL="):
+                        val = line.split("=", 1)[1].strip("\"' \n")
+                        if val:
+                            _CACHE_MODEL[port] = {"ts": now, "val": val}
+                            return val
+                    elif port == 8081 and line.startswith("EMBED_MODEL="):
+                        val = line.split("=", 1)[1].strip("\"' \n")
+                        if val:
+                            _CACHE_MODEL[port] = {"ts": now, "val": val}
+                            return val
+        except Exception:
+            pass
+
     try:
-        res = requests.get(f"http://127.0.0.1:{port}/props", timeout=1)
+        res = requests.get(f"http://127.0.0.1:{port}/props", timeout=0.5)
         data = res.json()
         model_path = data.get("default_generation_settings", {}).get("model", "")
         if not model_path:
             model_path = data.get("model_path", "")
         if model_path:
-            return os.path.basename(model_path)
+            val = os.path.basename(model_path)
+            _CACHE_MODEL[port] = {"ts": now, "val": val}
+            return val
     except Exception:
         pass
-    
-    try:
-        out = subprocess.check_output(["pgrep", "-a", "-f", f"port {port}"]).decode().strip()
-        parts = out.split("-m ")
-        if len(parts) > 1:
-            return os.path.basename(parts[1].split()[0])
-    except Exception:
-        pass
+
+    _CACHE_MODEL[port] = {"ts": now, "val": "Offline / Inactive"}
     return "Offline / Inactive"
 
 def get_tunnel_url():
@@ -87,16 +113,23 @@ def get_tunnel_url():
             pass
     return "No active tunnel detected"
 
+_CACHE_DB = {"mtime": 0, "val": (0, 0, "No database file")}
 def get_embedding_stats():
     db_file = os.path.expanduser("~/knowledge_db.json")
     if not os.path.exists(db_file):
         return 0, 0, "No database file"
     try:
+        mtime = os.path.getmtime(db_file)
+        if mtime == _CACHE_DB["mtime"]:
+            return _CACHE_DB["val"]
         with open(db_file, "r") as f:
             db = json.load(f)
         docs_count = len(db)
         chunks_count = sum(len(v.get("chunks", [])) for v in db.values())
-        return docs_count, chunks_count, "Synchronized"
+        val = (docs_count, chunks_count, "Synchronized")
+        _CACHE_DB["mtime"] = mtime
+        _CACHE_DB["val"] = val
+        return val
     except Exception as e:
         return 0, 0, f"Error: {e}"
 

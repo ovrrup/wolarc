@@ -162,12 +162,21 @@ class ChangeHandler(FileSystemEventHandler):
             index_file(event.src_path)
 
 if __name__ == "__main__":
-    observer = Observer()
+    import sys
+    run_once = any(arg in sys.argv for arg in ["--once", "sync", "-1"])
+
     for d in WATCH_DIRS:
         os.makedirs(d, exist_ok=True)
         for root, _, files in os.walk(d):
             for file in files:
                 index_file(os.path.join(root, file))
+
+    if run_once:
+        print("Vector database synchronization complete.")
+        sys.exit(0)
+
+    observer = Observer()
+    for d in WATCH_DIRS:
         observer.schedule(ChangeHandler(), d, recursive=True)
 
     observer.start()

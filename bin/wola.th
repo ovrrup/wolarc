@@ -45,7 +45,7 @@ def stream_thinking():
         while True:
             line = f.readline()
             if not line:
-                time.sleep(0.04)
+                time.sleep(0.08)
                 continue
 
             # Event triggers

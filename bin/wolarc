@@ -113,7 +113,7 @@ start_node() {
 
     "$BIN" -m "$MODELS_DIR/$CHAT_MODEL" \
            --host 127.0.0.1 \
-           -c "${CHAT_CTX:-4096}" -b 512 -np 1 \
+           -c "${CHAT_CTX:-4096}" -b 512 -np "${CHAT_PARALLEL:-2}" \
            -t "$CHAT_THREADS" \
            $FLASH_FLAG $MLOCK_FLAG \
            --port "${CHAT_PORT:-8080}" > "$HOME/chat.log" 2>&1 &
@@ -158,24 +158,33 @@ start_node() {
         case "$p" in
             "localhost.run")
                 nohup ssh -o StrictHostKeyChecking=no \
-                          -o ServerAliveInterval=15 \
+                          -o ServerAliveInterval=10 \
                           -o ServerAliveCountMax=3 \
+                          -o TCPKeepAlive=yes \
+                          -o IPQoS=lowdelay \
+                          -o Compression=no \
                           -o ExitOnForwardFailure=yes \
                           -R 80:localhost:${port} \
                           nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
                 ;;
             "serveo")
                 nohup ssh -o StrictHostKeyChecking=no \
-                          -o ServerAliveInterval=15 \
+                          -o ServerAliveInterval=10 \
                           -o ServerAliveCountMax=3 \
+                          -o TCPKeepAlive=yes \
+                          -o IPQoS=lowdelay \
+                          -o Compression=no \
                           -o ExitOnForwardFailure=yes \
                           -R 80:localhost:${port} \
                           serveo.net > "$HOME/tunnel.log" 2>&1 &
                 ;;
             "pinggy")
                 nohup ssh -o StrictHostKeyChecking=no \
-                          -o ServerAliveInterval=15 \
+                          -o ServerAliveInterval=10 \
                           -o ServerAliveCountMax=3 \
+                          -o TCPKeepAlive=yes \
+                          -o IPQoS=lowdelay \
+                          -o Compression=no \
                           -o ExitOnForwardFailure=yes \
                           -R 0:localhost:${port} \
                           a.pinggy.io > "$HOME/tunnel.log" 2>&1 &

@@ -90,15 +90,15 @@ switch_provider() {
 
     case "$target" in
         "serveo")
-            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 80:localhost:${port} serveo.net > "$HOME/tunnel.log" 2>&1 &
+            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes -o IPQoS=lowdelay -o Compression=no -o ExitOnForwardFailure=yes -R 80:localhost:${port} serveo.net > "$HOME/tunnel.log" 2>&1 &
             echo "serveo" > "$PROVIDER_FILE"
             ;;
         "pinggy")
-            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 0:localhost:${port} a.pinggy.io > "$HOME/tunnel.log" 2>&1 &
+            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes -o IPQoS=lowdelay -o Compression=no -o ExitOnForwardFailure=yes -R 0:localhost:${port} a.pinggy.io > "$HOME/tunnel.log" 2>&1 &
             echo "pinggy" > "$PROVIDER_FILE"
             ;;
         *)
-            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 80:localhost:${port} nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
+            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes -o IPQoS=lowdelay -o Compression=no -o ExitOnForwardFailure=yes -R 80:localhost:${port} nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
             echo "localhost.run" > "$PROVIDER_FILE"
             ;;
     esac

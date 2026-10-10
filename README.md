@@ -143,6 +143,7 @@ wola.t CHAT_THREADS 4               # CPU threads for chat inference
 wola.t CHAT_CTX 4096                # Context window size in tokens
 wola.t FLASH_ATTENTION auto         # Flash Attention (auto / on / off)
 wola.t MLOCK false                  # Pin model in RAM (true / false)
+wola.t CHAT_PARALLEL 2              # Parallel slots (prevents remote / local tool lockouts)
 wola.t TUNNEL_PROVIDER auto         # auto (fallback), localhost.run, serveo, or pinggy
 ```
 

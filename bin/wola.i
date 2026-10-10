@@ -21,7 +21,7 @@ AGENT_PORT="${AGENT_PORT:-5000}"
 case "$1" in
     "sync")
         echo -e "${C_CYAN}[*] Running knowledge base synchronization...${C_RESET}"
-        python3 "$INDEXER"
+        python3 "$INDEXER" --once
         echo -e "${C_GREEN}[+] Synchronization complete.${C_RESET}"
         ;;
     "add")
@@ -38,7 +38,7 @@ case "$1" in
         fname=$(basename "$TARGET")
         echo -e "${C_GREEN}[+] Imported '${fname}' into ${KNOWLEDGE_DIR}.${C_RESET}"
         echo -e "${C_CYAN}[*] Indexing new content...${C_RESET}"
-        python3 "$INDEXER"
+        python3 "$INDEXER" --once
         echo -e "${C_GREEN}[+] Ready! You can test it with: wola.i search \"<query>\"${C_RESET}"
         ;;
     "search"|"query")
@@ -124,7 +124,7 @@ print('=================================================================')
         echo -e "${C_YELLOW}[*] Removing vector database ($DB_FILE)...${C_RESET}"
         rm -f "$DB_FILE"
         echo -e "${C_CYAN}[*] Re-indexing notes from scratch...${C_RESET}"
-        python3 "$INDEXER"
+        python3 "$INDEXER" --once
         echo -e "${C_GREEN}[+] Rebuild complete.${C_RESET}"
         ;;
     "status")
@@ -137,12 +137,13 @@ else:
     try:
         with open(p, "r") as f:
             db = json.load(f)
+        total_chunks = sum(len(v.get("chunks", [])) for v in db.values())
         print("==================================================")
         print("           WOLA KNOWLEDGE BASE STATUS")
         print("==================================================")
         print(f"  Database File : {p}")
         print(f"  Total Docs    : {len(db)}")
-        print(f"  Total Chunks  : {sum(len(v.get(\"chunks\", [])) for v in db.values())}")
+        print(f"  Total Chunks  : {total_chunks}")
         print("--------------------------------------------------")
         for f_path, data in db.items():
             name = data.get("filename", os.path.basename(f_path))

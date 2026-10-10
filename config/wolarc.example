@@ -21,6 +21,7 @@ CHAT_CTX="4096"
 EMBED_CTX="2048"
 FLASH_ATTENTION="auto" # 'auto', 'on', or 'off' (cuts RAM footprint and boosts prompt eval)
 MLOCK="false"          # 'true' pins model weights in RAM to prevent Android OS swapping
+CHAT_PARALLEL="2"      # Number of concurrent parallel request slots (prevents remote/local lockout)
 
 # Tunnel Provider
 TUNNEL_PROVIDER="auto" # 'auto' (fallback chain), 'localhost.run', 'serveo', or 'pinggy'
