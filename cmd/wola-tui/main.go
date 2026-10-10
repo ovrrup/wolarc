@@ -14,25 +14,33 @@ import (
 const Version = "2.0.0 (Go + Bubble Tea)"
 
 func printHelp() {
-	fmt.Printf(`🐺 WOLARC TUI - High-Performance Autonomous Local RAG Suite
+	fmt.Printf(`🐺 WOLARC - Autonomous Local RAG Suite & TUI
 Version: %s
 
 USAGE:
+    wola [SUBCOMMAND] [FLAGS]
     wola-tui [SUBCOMMAND] [FLAGS]
 
 SUBCOMMANDS:
+    (no args)          Launch Unified Go & Bubble Tea TUI
     dashboard, d       Launch TUI with System Dashboard (default)
     chat, c            Launch TUI directly in Interactive RAG Chat
     models, m          Launch TUI Model Management & Local Importer
     knowledge, k, i    Launch TUI Knowledge Base & Semantic Tester
     logs, l            Launch TUI Multi-Stream Realtime Log Tailer
     status             Print quick non-interactive node telemetry
+    start, r           Start all services (chat, embed, agent, tunnel)
+    stop, k            Stop all services cleanly
+    restart, rs        Restart all services
+    url, link          Display active Gateway Tunnel URL
 
 HOTKEYS INSIDE TUI:
     Tab / Shift+Tab    Cycle between views
     F1 - F5 / Ctrl+1-5 Switch directly to tabs [Dashboard, Chat, Models, Knowledge, Logs]
+    Ctrl+K / :         Open fuzzy Command Palette
     Ctrl+T / Ctrl+N    Next tab
     Ctrl+P             Previous tab
+    ? / F1             Show Help modal
     q / Ctrl+C         Quit application
 `, Version)
 }
@@ -93,13 +101,46 @@ func main() {
 		case "status":
 			printStatus(cfg)
 			return
+		case "start", "r", "boot":
+			fmt.Println("[*] Booting Wolarc AI node stack (wola.r)...")
+			if err := system.StartServices(); err != nil {
+				fmt.Printf("Error starting services: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("✓ Wolarc stack boot initiated. Run 'wola status' or 'wola' to monitor.")
+			return
+		case "stop", "k", "kill":
+			fmt.Println("[*] Stopping Wolarc services (wola.k)...")
+			if err := system.StopServices(); err != nil {
+				fmt.Printf("Error stopping services: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("✓ All Wolarc services stopped cleanly.")
+			return
+		case "restart", "rs":
+			fmt.Println("[*] Restarting Wolarc stack (wola.rs)...")
+			if err := system.RestartServices(); err != nil {
+				fmt.Printf("Error restarting services: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("✓ Wolarc restart initiated.")
+			return
+		case "url", "link", "tunnel":
+			tURL := config.GetTunnelURL()
+			if tURL != "" {
+				fmt.Printf("Gateway Tunnel URL : %s\n", tURL)
+				fmt.Printf("OpenAI API Endpoint: %s/v1\n", tURL)
+			} else {
+				fmt.Println("Gateway Tunnel is currently inactive. Run 'wola r' to start services.")
+			}
+			return
 		case "d", "dash", "dashboard":
 			initialTab = ui.TabDashboard
 		case "c", "chat":
 			initialTab = ui.TabChat
 		case "m", "model", "models":
 			initialTab = ui.TabModels
-		case "k", "know", "knowledge", "i", "index":
+		case "know", "knowledge", "i", "index":
 			initialTab = ui.TabKnowledge
 		case "l", "log", "logs":
 			initialTab = ui.TabLogs

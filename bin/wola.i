@@ -66,21 +66,33 @@ if not os.path.exists(db_file):
     print('[-] Database file not found: ' + db_file)
     sys.exit(0)
 
-try:
-    res = requests.post(f'http://127.0.0.1:{embed_port}/embedding', json={'content': query}, timeout=10)
-    data = res.json()
-    if isinstance(data, list) and len(data) > 0:
-        q_raw = data[0].get('embedding', []) if isinstance(data[0], dict) else data[0]
-    elif isinstance(data, dict):
-        q_raw = data.get('embedding', data.get('data', [{}])[0].get('embedding', []))
-    else:
-        q_raw = []
-except Exception as e:
-    print(f'[-] Could not contact embedding engine (Port {embed_port}): {e}')
-    sys.exit(1)
+q_raw = []
+for url, payload in [
+    (f'http://127.0.0.1:{embed_port}/v1/embeddings', {'input': query}),
+    (f'http://127.0.0.1:{embed_port}/embedding', {'content': query}),
+    (f'http://127.0.0.1:{embed_port}/embedding', {'input': query})
+]:
+    try:
+        res = requests.post(url, json=payload, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, list) and len(data) > 0:
+                first = data[0]
+                q_raw = first.get('embedding', []) if isinstance(first, dict) else first
+            elif isinstance(data, dict):
+                if 'embedding' in data:
+                    q_raw = data['embedding']
+                elif 'data' in data and len(data['data']) > 0:
+                    q_raw = data['data'][0].get('embedding', [])
+            while isinstance(q_raw, list) and len(q_raw) > 0 and isinstance(q_raw[0], list):
+                q_raw = q_raw[0]
+            if q_raw:
+                break
+    except Exception:
+        continue
 
 if not q_raw:
-    print('[-] Empty embedding returned.')
+    print(f'[-] Could not contact embedding engine (Port {embed_port}) or received empty embedding.')
     sys.exit(1)
 
 q_vec = np.array(q_raw, dtype=np.float32).flatten()

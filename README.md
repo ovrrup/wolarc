@@ -75,9 +75,14 @@ pkg update && pkg install python git curl openssh poppler
 pip install -r requirements.txt
 ```
 
-### 2. Installation
+### 2. Installation (One-Command Setup)
 
-Clone and install the CLI suite:
+Install Wolarc and compile the Go TUI automatically with a single command:
+```bash
+curl -fsSL https://raw.githubusercontent.com/ovrrup/wolarc/main/install.sh | bash
+```
+
+Or clone manually:
 ```bash
 git clone https://github.com/ovrrup/wolarc.git
 cd wolarc
@@ -104,8 +109,14 @@ Choose from lightweight, mobile-tested models such as:
 - **Chat**: Gemma 2 2B, Qwen 2.5 1.5B, Llama 3.2 1B, Phi-4 Mini
 - **Embedding**: BGE-Small English v1.5, Nomic Embed v1.5, Embedding-Gemma 270M
 
-### 4. Start the Node
+### 4. Launch or Start the Node
 
+Launch the modern Go TUI:
+```bash
+wola
+```
+
+Or boot background daemons directly:
 ```bash
 wola.r
 ```
@@ -123,10 +134,11 @@ This boots:
 
 | Command | Action |
 |---|---|
+| `wola` | **Unified Go & Bubble Tea TUI** (`dashboard`, `chat`, `models`, `knowledge`, `logs`) |
 | `wola.r` | **Start** all services (acquires wake-lock) |
 | `wola.k` | **Stop** all services cleanly (releases wake-lock) |
 | `wola.rs` | **Restart** all services |
-| `wola-tui` | **Unified Go & Bubble Tea TUI** (`dashboard`, `chat`, `models`, `knowledge`, `logs`) |
+| `wola-tui` | Direct binary invocation for **Go & Bubble Tea TUI** |
 | `wolarc status` | View active process PIDs and listening ports |
 | `wola.d` | Open the live **telemetry dashboard** (auto-delegates to `wola-tui` when present) |
 | `wola.url` | **Remote tunnel URL**, latency test, ASCII QR code & clipboard |

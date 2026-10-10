@@ -21,11 +21,29 @@ import (
 	"github.com/ovrrup/wolarc/internal/ui/styles"
 )
 
+type VectorSlice []float64
+
+func (vs *VectorSlice) UnmarshalJSON(data []byte) error {
+	var v1 []float64
+	if err := json.Unmarshal(data, &v1); err == nil {
+		*vs = v1
+		return nil
+	}
+	var v2 [][]float64
+	if err := json.Unmarshal(data, &v2); err == nil {
+		if len(v2) > 0 {
+			*vs = v2[0]
+		}
+		return nil
+	}
+	return nil
+}
+
 type ChunkRecord struct {
-	ChunkID int       `json:"chunk_id"`
-	Text    string    `json:"text"`
-	Hash    string    `json:"hash"`
-	Vector  []float64 `json:"vector"`
+	ChunkID int         `json:"chunk_id"`
+	Text    string      `json:"text"`
+	Hash    string      `json:"hash"`
+	Vector  VectorSlice `json:"vector"`
 }
 
 type FileRecord struct {
@@ -155,32 +173,38 @@ func (m *KnowledgeModel) PerformSearch(query string) {
 		return
 	}
 
-	// 1. Fetch query vector from embedder
-	embedURL := fmt.Sprintf("http://127.0.0.1:%s/embedding", m.Config.EmbedPort)
-	reqBody, _ := json.Marshal(map[string]string{"content": query})
+	// 1. Fetch query vector from embedder (trying /v1/embeddings and /embedding)
 	client := http.Client{Timeout: 8 * time.Second}
+	var queryVec []float64
 
-	resp, err := client.Post(embedURL, "application/json", bytes.NewBuffer(reqBody))
-	if err != nil {
-		m.StatusMsg = fmt.Sprintf("Embedder offline (%s): %v", embedURL, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		m.StatusMsg = fmt.Sprintf("Embedder returned HTTP %d", resp.StatusCode)
-		return
-	}
-
-	var jsonResp interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&jsonResp); err != nil {
-		m.StatusMsg = fmt.Sprintf("Failed to parse embedder response: %v", err)
-		return
+	v1URL := fmt.Sprintf("http://127.0.0.1:%s/v1/embeddings", m.Config.EmbedPort)
+	v1Body, _ := json.Marshal(map[string]string{"input": query})
+	if resp, err := client.Post(v1URL, "application/json", bytes.NewBuffer(v1Body)); err == nil {
+		if resp.StatusCode == http.StatusOK {
+			var jsonResp interface{}
+			if err := json.NewDecoder(resp.Body).Decode(&jsonResp); err == nil {
+				queryVec = extractVector(jsonResp)
+			}
+		}
+		_ = resp.Body.Close()
 	}
 
-	queryVec := extractVector(jsonResp)
 	if len(queryVec) == 0 {
-		m.StatusMsg = "Could not extract vector from embedder response"
+		embedURL := fmt.Sprintf("http://127.0.0.1:%s/embedding", m.Config.EmbedPort)
+		reqBody, _ := json.Marshal(map[string]string{"content": query})
+		if resp, err := client.Post(embedURL, "application/json", bytes.NewBuffer(reqBody)); err == nil {
+			if resp.StatusCode == http.StatusOK {
+				var jsonResp interface{}
+				if err := json.NewDecoder(resp.Body).Decode(&jsonResp); err == nil {
+					queryVec = extractVector(jsonResp)
+				}
+			}
+			_ = resp.Body.Close()
+		}
+	}
+
+	if len(queryVec) == 0 {
+		m.StatusMsg = fmt.Sprintf("Embedder offline or invalid response on port %s", m.Config.EmbedPort)
 		return
 	}
 
@@ -259,14 +283,23 @@ func extractVector(data interface{}) []float64 {
 }
 
 func toFloatSlice(val interface{}) []float64 {
+	if val == nil {
+		return nil
+	}
 	arr, ok := val.([]interface{})
 	if !ok {
 		return nil
 	}
-	res := make([]float64, len(arr))
-	for i, item := range arr {
+	if len(arr) == 0 {
+		return nil
+	}
+	if _, isSlice := arr[0].([]interface{}); isSlice {
+		return toFloatSlice(arr[0])
+	}
+	res := make([]float64, 0, len(arr))
+	for _, item := range arr {
 		if f, ok := item.(float64); ok {
-			res[i] = f
+			res = append(res, f)
 		}
 	}
 	return res

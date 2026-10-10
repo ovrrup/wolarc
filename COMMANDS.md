@@ -7,11 +7,11 @@
 ## Command Quick Index
 
 | Command | Aliases | Description |
-| :--- | :--- | :--- |
+| [`wola`](#2-telemetry-dashboard--modern-tui) | `wola-tui`, `wola.tui` | Unified Go & Bubble Tea TUI (`dashboard`, `chat`, `models`, `knowledge`, `logs`) and root CLI |
 | [`wola.r`](#1-system-lifecycle--process-management) | `wolarc r`, `wolarc start` | Start all AI node services (chat, embed, API, tunnel, wake-lock) |
 | [`wola.k`](#1-system-lifecycle--process-management) | `wolarc k`, `wolarc stop` | Stop all AI node services cleanly and release wake-locks |
 | [`wola.rs`](#1-system-lifecycle--process-management) | `wolarc rs`, `wolarc restart` | Graceful restart cycle (shutdown -> cooldown -> boot) |
-| [`wolarc status`](#1-system-lifecycle--process-management) | — | Display active process PIDs, listening ports, and switch status |
+| [`wolarc status`](#1-system-lifecycle--process-management) | `wola status` | Display active process PIDs, listening ports, and switch status |
 | [`wola.d`](#2-telemetry-dashboard--modern-tui) | `wola.tui`, `wola-tui`, `wolarc d` | Launch the high-performance Go Bubble Tea telemetry dashboard |
 | [`wola.url`](#3-remote-gateway--connectivity) | `wola.link`, `wolarc url` | Show public tunnel URL, QR code, ping latency & copy endpoint |
 | [`wola.chat`](#4-interactive-terminal-chat-client) | `wola.c`, `wolarc c` | Interactive CLI chat client with live token streaming and RAG citations |

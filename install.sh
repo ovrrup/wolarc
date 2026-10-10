@@ -11,7 +11,38 @@ C_YELLOW="\033[1;33m"
 C_CYAN="\033[1;36m"
 C_MAGENTA="\033[1;35m"
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+
+# One-command installer bootstrap: If run via curl pipe or outside repo, fetch repository first
+REPO_URL="https://github.com/ovrrup/wolarc.git"
+INSTALL_DIR="$HOME/wola"
+
+if [ ! -f "$DIR/config/wolarc.example" ] || [ ! -d "$DIR/cmd/wola-tui" ]; then
+    echo -e "\033[1;36m[*] One-command installation detected. Bootstrapping Wolarc repository...\033[0m"
+    if ! command -v git >/dev/null 2>&1; then
+        echo -e "  [*] Installing git..."
+        if [ -d "/data/data/com.termux/files/usr/bin" ]; then
+            pkg update -y && pkg install -y git
+        elif command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y git
+        elif command -v pacman >/dev/null 2>&1; then
+            sudo pacman -Sy --noconfirm git
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y git
+        fi
+    fi
+
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        echo -e "  [*] Updating existing repository at $INSTALL_DIR..."
+        git -C "$INSTALL_DIR" pull --quiet || true
+    else
+        echo -e "  [*] Cloning repository into $INSTALL_DIR..."
+        mkdir -p "$HOME"
+        git clone --quiet "$REPO_URL" "$INSTALL_DIR"
+    fi
+
+    DIR="$INSTALL_DIR"
+fi
 
 # Detect environment and appropriate installation prefix
 if [ -d "/data/data/com.termux/files/usr/bin" ]; then
@@ -98,18 +129,36 @@ check_dependencies() {
     if ! command -v ssh >/dev/null 2>&1; then
         missing+=("openssh")
     fi
+    if ! command -v go >/dev/null 2>&1; then
+        if [ "$IS_TERMUX" = true ]; then
+            missing+=("golang")
+        elif command -v apt-get >/dev/null 2>&1; then
+            missing+=("golang-go")
+        else
+            missing+=("golang")
+        fi
+    fi
 
     if [ ${#missing[@]} -gt 0 ]; then
         echo -e "  ${C_RED}[-] Missing packages: ${missing[*]}${C_RESET}"
         if [ "$IS_TERMUX" = true ]; then
             echo -e "  [*] Installing missing packages via pkg..."
             pkg install -y "${missing[@]}"
+        elif command -v apt-get >/dev/null 2>&1; then
+            echo -e "  [*] Installing missing packages via apt..."
+            sudo apt-get update -qq && sudo apt-get install -y "${missing[@]}"
+        elif command -v pacman >/dev/null 2>&1; then
+            echo -e "  [*] Installing missing packages via pacman..."
+            sudo pacman -Sy --noconfirm "${missing[@]}"
+        elif command -v dnf >/dev/null 2>&1; then
+            echo -e "  [*] Installing missing packages via dnf..."
+            sudo dnf install -y "${missing[@]}"
         else
             echo -e "  ${C_RED}[!] Please install missing packages using your package manager.${C_RESET}"
             exit 1
         fi
     else
-        echo -e "  ${C_GREEN}✓ Core utilities verified (python3, git, curl, ssh)${C_RESET}"
+        echo -e "  ${C_GREEN}✓ Core utilities & Go compiler verified (python3, git, curl, ssh, go)${C_RESET}"
     fi
 
     # Optional PDF support
@@ -131,6 +180,8 @@ check_dependencies() {
         llama_path=$(command -v llama-server)
     elif [ -f "$HOME/llama.cpp/build/bin/llama-server" ]; then
         llama_path="$HOME/llama.cpp/build/bin/llama-server"
+        mkdir -p "$TARGET_BIN"
+        ln -sf "$llama_path" "$TARGET_BIN/llama-server" 2>/dev/null || true
     elif [ -f "$TARGET_BIN/llama-server" ]; then
         llama_path="$TARGET_BIN/llama-server"
     fi
@@ -389,6 +440,14 @@ else:
                 if not val or not os.path.exists(os.path.join(models_dir, val)):
                     l = f'EMBED_MODEL=\"{embed_candidate}\"\n'
                     print(f'    - Adjusted EMBED_MODEL -> {embed_candidate}')
+            elif k == 'SIMILARITY_THRESHOLD':
+                try:
+                    s_val = float(l.split('=', 1)[1].strip('\"\' \n'))
+                    if s_val >= 0.65:
+                        l = 'SIMILARITY_THRESHOLD=\"0.35\"\n'
+                        print('    - Adjusted SIMILARITY_THRESHOLD -> 0.35 (optimal cross-domain RAG)')
+                except Exception:
+                    pass
         new_config.append(l)
 
     for tl in template_lines:
@@ -405,7 +464,19 @@ db_path = os.path.join(home, 'knowledge_db.json')
 if os.path.exists(db_path):
     try:
         with open(db_path, 'r') as f:
-            json.load(f)
+            data = json.load(f)
+        dirty = False
+        for k, doc in data.items():
+            for ch in doc.get('chunks', []):
+                v = ch.get('vector', [])
+                while isinstance(v, list) and len(v) > 0 and isinstance(v[0], list):
+                    v = v[0]
+                    ch['vector'] = v
+                    dirty = True
+        if dirty:
+            with open(db_path, 'w') as f:
+                json.dump(data, f, indent=2)
+            print('    - Flattened 2D vectors in knowledge_db.json to clean 1D vectors.')
         print('    - knowledge_db.json verified valid JSON.')
     except Exception:
         corrupt_bak = f'{db_path}.corrupted.{int(time.time())}'
@@ -536,16 +607,44 @@ deploy_binaries() {
     ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.selfdestruct"
     ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.nuke"
 
-    # Install Go Bubble Tea TUI binary if pre-built or present
-    if [ -f "$DIR/dist/wola-tui" ]; then
-        cp "$DIR/dist/wola-tui" "$TARGET_BIN/wola-tui"
-        chmod +x "$TARGET_BIN/wola-tui"
-    elif [ -f "$DIR/dist/wola-tui-linux-arm64" ] && [ "$IS_TERMUX" = "true" ]; then
-        cp "$DIR/dist/wola-tui-linux-arm64" "$TARGET_BIN/wola-tui"
-        chmod +x "$TARGET_BIN/wola-tui"
+    # Build and deploy Go Bubble Tea TUI
+    echo -e "  [*] Building Go Bubble Tea TUI (wola-tui)..."
+    local tui_installed=false
+
+    if command -v go >/dev/null 2>&1 && [ -d "$DIR/cmd/wola-tui" ]; then
+        export TMPDIR="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+        [ ! -d "$TMPDIR" ] && export TMPDIR="/tmp"
+        mkdir -p "$DIR/bin"
+        if (cd "$DIR" && go build -ldflags="-s -w" -o "$DIR/bin/wola-tui" ./cmd/wola-tui); then
+            cp "$DIR/bin/wola-tui" "$TARGET_BIN/wola-tui"
+            chmod +x "$TARGET_BIN/wola-tui"
+            tui_installed=true
+            echo -e "  ${C_GREEN}✓ Successfully built and installed Go TUI (${TARGET_BIN}/wola-tui)${C_RESET}"
+        fi
     fi
+
+    if [ "$tui_installed" = false ]; then
+        if [ -f "$DIR/dist/wola-tui" ]; then
+            cp "$DIR/dist/wola-tui" "$TARGET_BIN/wola-tui"
+            chmod +x "$TARGET_BIN/wola-tui"
+            tui_installed=true
+        elif [ -f "$DIR/dist/wola-tui-linux-arm64" ] && [ "$IS_TERMUX" = "true" ]; then
+            cp "$DIR/dist/wola-tui-linux-arm64" "$TARGET_BIN/wola-tui"
+            chmod +x "$TARGET_BIN/wola-tui"
+            tui_installed=true
+        elif [ -f "$DIR/bin/wola-tui" ]; then
+            cp "$DIR/bin/wola-tui" "$TARGET_BIN/wola-tui"
+            chmod +x "$TARGET_BIN/wola-tui"
+            tui_installed=true
+        fi
+    fi
+
     if [ -f "$TARGET_BIN/wola-tui" ]; then
         ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola.tui"
+        ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola"
+        echo -e "  ${C_GREEN}✓ Integrated Go TUI: 'wola' and 'wola.tui' -> ${TARGET_BIN}/wola-tui${C_RESET}"
+    else
+        ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola"
     fi
 
     # Save commit version if in git repo
@@ -554,7 +653,7 @@ deploy_binaries() {
     fi
 
     echo -e "  ${C_GREEN}✓ Installed commands into ${TARGET_BIN}:${C_RESET}"
-    echo -e "    wola.r  wola.k  wola.rs  wola.d  wola.url  wola.chat  wola.bench  wola.log  wola.th  wola.gt  wola.gh  wola.t  wola.m  wola.i  wola.u  wola-h"
+    echo -e "    wola  wola.r  wola.k  wola.rs  wola.d  wola.url  wola.chat  wola.bench  wola.log  wola.th  wola.gt  wola.gh  wola.t  wola.m  wola.i  wola.u  wola-h"
 }
 
 # -------------------------------------------------------------
@@ -565,6 +664,7 @@ post_install() {
     echo -e "  ${C_BOLD}${C_GREEN}✓ WOLARC INSTALLATION COMPLETE!${C_RESET}"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
     echo -e "  ${C_BOLD}Commands Cheatsheet:${C_RESET}"
+    echo -e "    ${C_GREEN}wola${C_RESET}       • Launch Unified Go & Bubble Tea TUI (Everything in one place)"
     echo -e "    ${C_GREEN}wola.r${C_RESET}     • Start all services (chat, embed, agent API, tunnel)"
     echo -e "    ${C_RED}wola.k${C_RESET}     • Stop all services cleanly"
     echo -e "    ${C_CYAN}wola.d${C_RESET}     • Open real-time Telemetry Dashboard"
@@ -586,6 +686,17 @@ post_install() {
         store_ans=${store_ans:-y}
         if [[ "$store_ans" =~ ^[Yy] ]]; then
             exec "$TARGET_BIN/wola.gt"
+        fi
+    elif [ "$MODE" = "interactive" ]; then
+        echo ""
+        read -p "Would you like to launch Wolarc TUI (wola) now? (Y/n): " tui_ans
+        tui_ans=${tui_ans:-y}
+        if [[ "$tui_ans" =~ ^[Yy] ]]; then
+            if [ -x "$TARGET_BIN/wola-tui" ]; then
+                exec "$TARGET_BIN/wola-tui"
+            elif [ -x "$TARGET_BIN/wola" ]; then
+                exec "$TARGET_BIN/wola"
+            fi
         fi
     fi
 }

@@ -23,10 +23,12 @@ def load_cfg():
         "EMBED_PORT": "8081",
         "CHAT_PORT": "8080",
         "AGENT_PORT": "5000",
+        "CHAT_MODEL": "chat-model",
+        "EMBED_MODEL": "embed-model",
         "DB_FILE": os.path.expanduser("~/knowledge_db.json"),
         "METRICS_FILE": os.path.expanduser("~/.wola_metrics.json"),
         "TEMPERATURE": 0.3,
-        "SIMILARITY_THRESHOLD": 0.65,
+        "SIMILARITY_THRESHOLD": 0.35,
         "TOP_K": 2,
         "SYSTEM_PROMPT": "Answer directly and accurately."
     }
@@ -38,8 +40,12 @@ def load_cfg():
                     if "=" in line and not line.startswith("#"):
                         k, v = line.split("=", 1)
                         k, v = k.strip(), v.strip("\"' ")
-                        if k in ["TEMPERATURE", "SIMILARITY_THRESHOLD"]:
+                        if k in ["TEMPERATURE"]:
                             cfg[k] = float(v)
+                        elif k in ["SIMILARITY_THRESHOLD"]:
+                            val = float(v)
+                            # Migrate legacy high threshold (0.65+) to optimal cross-domain threshold (0.35)
+                            cfg[k] = 0.35 if val >= 0.65 else val
                         elif k in ["TOP_K"]:
                             cfg[k] = int(v)
                         elif k in ["DB_FILE", "METRICS_FILE"]:
@@ -110,6 +116,40 @@ def record_metrics(timings, cfg):
 _QUERY_EMBED_CACHE = {}
 _VECTOR_STORE = {"mtime": 0, "matrix": None, "metadata": []}
 
+def extract_embedding_vector(data):
+    """Safely extracts and flattens an embedding vector to a 1D list of floats."""
+    if not data:
+        return []
+    vec = []
+    if isinstance(data, list) and len(data) > 0:
+        first = data[0]
+        if isinstance(first, dict):
+            vec = first.get("embedding", [])
+        elif isinstance(first, list):
+            vec = first
+        elif isinstance(first, (int, float)):
+            vec = data
+    elif isinstance(data, dict):
+        if "embedding" in data:
+            vec = data["embedding"]
+        elif "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
+            first_item = data["data"][0]
+            if isinstance(first_item, dict):
+                vec = first_item.get("embedding", [])
+            elif isinstance(first_item, list):
+                vec = first_item
+
+    # Flatten nested arrays (e.g. [[0.1, 0.2, ...]])
+    while isinstance(vec, list) and len(vec) > 0 and isinstance(vec[0], list):
+        vec = vec[0]
+
+    if isinstance(vec, list) and len(vec) > 0:
+        try:
+            return [float(x) for x in vec]
+        except Exception:
+            return []
+    return []
+
 def get_query_vector(text, embed_port):
     text_key = text.strip()
     if not text_key:
@@ -117,28 +157,25 @@ def get_query_vector(text, embed_port):
     if text_key in _QUERY_EMBED_CACHE:
         return _QUERY_EMBED_CACHE[text_key]
 
-    try:
-        url = f"http://127.0.0.1:{embed_port}/embedding"
-        res = requests.post(url, json={"content": text}, timeout=10)
-        data = res.json()
-        vec = []
-        if isinstance(data, list) and len(data) > 0:
-            first = data[0]
-            vec = first.get("embedding", []) if isinstance(first, dict) else first
-        elif isinstance(data, dict):
-            if "embedding" in data:
-                vec = data["embedding"]
-            else:
-                data_list = data.get("data", [])
-                if data_list and isinstance(data_list[0], dict):
-                    vec = data_list[0].get("embedding", [])
-        if vec:
-            if len(_QUERY_EMBED_CACHE) > 256:
-                _QUERY_EMBED_CACHE.pop(next(iter(_QUERY_EMBED_CACHE)))
-            _QUERY_EMBED_CACHE[text_key] = vec
-            return vec
-    except Exception:
-        pass
+    # Support modern /v1/embeddings standard, classic /embedding, and content/input payload keys
+    candidates = [
+        (f"http://127.0.0.1:{embed_port}/v1/embeddings", {"input": text_key}),
+        (f"http://127.0.0.1:{embed_port}/embedding", {"content": text_key}),
+        (f"http://127.0.0.1:{embed_port}/embedding", {"input": text_key}),
+        (f"http://127.0.0.1:{embed_port}/v1/embeddings", {"content": text_key}),
+    ]
+    for url, payload in candidates:
+        try:
+            res = requests.post(url, json=payload, timeout=12)
+            if res.status_code == 200:
+                vec = extract_embedding_vector(res.json())
+                if vec:
+                    if len(_QUERY_EMBED_CACHE) > 256:
+                        _QUERY_EMBED_CACHE.pop(next(iter(_QUERY_EMBED_CACHE)))
+                    _QUERY_EMBED_CACHE[text_key] = vec
+                    return vec
+        except Exception:
+            continue
     return []
 
 def load_vector_store(db_file):
@@ -324,11 +361,71 @@ def server_status():
 @app.route("/v1/models", methods=["GET"])
 def list_models():
     cfg = load_cfg()
+    models = []
     try:
         res = requests.get(f"http://127.0.0.1:{cfg['CHAT_PORT']}/v1/models", timeout=3)
-        return (res.content, res.status_code, res.headers.items())
+        if res.status_code == 200:
+            chat_data = res.json()
+            if isinstance(chat_data, dict) and "data" in chat_data:
+                models.extend(chat_data["data"])
     except Exception:
-        return jsonify({"object": "list", "data": [{"id": "active-model", "object": "model"}]})
+        pass
+
+    chat_model = cfg.get("CHAT_MODEL", "active-chat-model") or "active-chat-model"
+    if not any(m.get("id") == chat_model for m in models):
+        models.append({"id": chat_model, "object": "model", "owned_by": "wola"})
+
+    embed_model = cfg.get("EMBED_MODEL", "active-embed-model") or "active-embed-model"
+    if not any(m.get("id") == embed_model for m in models):
+        models.append({"id": embed_model, "object": "model", "owned_by": "wola"})
+
+    return jsonify({"object": "list", "data": models})
+
+@app.route("/embeddings", methods=["OPTIONS"])
+@app.route("/v1/embeddings", methods=["OPTIONS"])
+def embeddings_options():
+    return Response("", status=204)
+
+@app.route("/embeddings", methods=["POST"])
+@app.route("/v1/embeddings", methods=["POST"])
+def create_embeddings():
+    cfg = load_cfg()
+    body = request.get_json(force=True, silent=True) or {}
+    raw_input = body.get("input", "")
+    if not raw_input and "content" in body:
+        raw_input = body.get("content", "")
+
+    if isinstance(raw_input, str):
+        items = [raw_input]
+    elif isinstance(raw_input, list):
+        items = [str(x) for x in raw_input]
+    else:
+        items = [str(raw_input)]
+
+    embed_port = cfg.get("EMBED_PORT", "8081")
+    data_list = []
+    total_tokens = 0
+
+    for idx, text in enumerate(items):
+        vec = get_query_vector(text, embed_port)
+        tok_est = max(1, len(text.split()))
+        total_tokens += tok_est
+        data_list.append({
+            "object": "embedding",
+            "index": idx,
+            "embedding": vec
+        })
+
+    model_id = body.get("model") or cfg.get("EMBED_MODEL", "local-embed")
+    return jsonify({
+        "object": "list",
+        "data": data_list,
+        "model": model_id,
+        "usage": {
+            "prompt_tokens": total_tokens,
+            "total_tokens": total_tokens
+        }
+    })
 
 @app.after_request
 def after_request(response):

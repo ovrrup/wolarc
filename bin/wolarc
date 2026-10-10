@@ -71,10 +71,10 @@ start_node() {
 
     MODELS_DIR="${MODELS_DIR:-$HOME/models}"
     if [ -z "$EMBED_MODEL" ]; then
-        EMBED_MODEL=$(find "$MODELS_DIR" -maxdepth 1 -iname "*embed*.gguf" -o -iname "*bge*.gguf" 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
+        EMBED_MODEL=$(find "$MODELS_DIR" -maxdepth 1 \( -iname "*embed*.gguf" -o -iname "*bge*.gguf" -o -iname "*nomic*.gguf" -o -iname "*minilm*.gguf" \) 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
     fi
     if [ -z "$CHAT_MODEL" ]; then
-        CHAT_MODEL=$(find "$MODELS_DIR" -maxdepth 1 -iname "*.gguf" ! -iname "*embed*" ! -iname "*bge*" 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
+        CHAT_MODEL=$(find "$MODELS_DIR" -maxdepth 1 -iname "*.gguf" ! -iname "*embed*" ! -iname "*bge*" ! -iname "*nomic*" ! -iname "*minilm*" 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
     fi
 
     if [ ! -f "$MODELS_DIR/$EMBED_MODEL" ]; then
@@ -118,14 +118,14 @@ start_node() {
            $FLASH_FLAG $MLOCK_FLAG \
            --port "${CHAT_PORT:-8080}" > "$HOME/chat.log" 2>&1 &
 
-    if ! wait_for_service "http://127.0.0.1:${EMBED_PORT:-8081}/props" "Embedding Engine (8081)"; then
+    if ! wait_for_service "http://127.0.0.1:${EMBED_PORT:-8081}/health" "Embedding Engine (8081)"; then
         echo -e "${C_RED}[-] Embedding server failed to start.${C_RESET}"
         tail -n 10 "$HOME/embed.log"
         stop_node
         exit 1
     fi
 
-    if ! wait_for_service "http://127.0.0.1:${CHAT_PORT:-8080}/props" "Chat LLM Engine (8080)"; then
+    if ! wait_for_service "http://127.0.0.1:${CHAT_PORT:-8080}/health" "Chat LLM Engine (8080)"; then
         echo -e "${C_RED}[-] Chat server failed to start.${C_RESET}"
         tail -n 10 "$HOME/chat.log"
         stop_node
@@ -309,6 +309,62 @@ case "$INVOCATION" in
         exec "$TARGET_PURGE" "$@"
         ;;
     "wola-h"|"wola.h") exec "$PREFIX/bin/wola-h" ;;
+    "wola")
+        if [ $# -eq 0 ]; then
+            if command -v wola-tui >/dev/null 2>&1; then
+                exec wola-tui
+            fi
+        fi
+        case "$1" in
+            "r"|"start")       start_node ;;
+            "k"|"stop")        stop_node ;;
+            "rs"|"restart")    restart_node ;;
+            "d"|"dash"|"dashboard")
+                if command -v wola-tui >/dev/null 2>&1; then
+                    exec wola-tui dashboard
+                fi
+                exec "$PREFIX/bin/wola.d"
+                ;;
+            "c"|"chat")
+                if command -v wola-tui >/dev/null 2>&1; then
+                    exec wola-tui chat
+                fi
+                shift; exec "$PREFIX/bin/wola.chat" "$@"
+                ;;
+            "m"|"models")
+                if command -v wola-tui >/dev/null 2>&1; then
+                    exec wola-tui models
+                fi
+                shift; exec "$PREFIX/bin/wola.m" "$@"
+                ;;
+            "i"|"index"|"know"|"knowledge")
+                if command -v wola-tui >/dev/null 2>&1; then
+                    exec wola-tui knowledge
+                fi
+                shift; exec "$PREFIX/bin/wola.i" "$@"
+                ;;
+            "l"|"log"|"logs")
+                if command -v wola-tui >/dev/null 2>&1; then
+                    exec wola-tui logs
+                fi
+                shift; exec "$PREFIX/bin/wola.log" "$@"
+                ;;
+            "url"|"link"|"tunnel") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
+            "b"|"bench")       shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
+            "th"|"think")      exec "$PREFIX/bin/wola.th" ;;
+            "t"|"tuner")       shift; exec "$PREFIX/bin/wola.t" "$@" ;;
+            "gt"|"gh"|"store") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
+            "u"|"update"|"upgrade") shift; exec "$PREFIX/bin/wola.u" "$@" ;;
+            "status")          status_node ;;
+            *)
+                if command -v wola-tui >/dev/null 2>&1; then
+                    exec wola-tui "$@"
+                fi
+                echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
+                echo "Usage: wola [dashboard|chat|models|knowledge|logs|start|stop|restart|status|url]"
+                ;;
+        esac
+        ;;
     *)
         case "$1" in
             "r"|"start")       start_node ;;
@@ -334,6 +390,9 @@ case "$INVOCATION" in
                 ;;
             "status")          status_node ;;
             *)
+                if [ $# -eq 0 ] && command -v wola-tui >/dev/null 2>&1; then
+                    exec wola-tui
+                fi
                 echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
                 echo "Usage: wola.r | wola.k | wola.rs | wola.d | wola.url | wola.chat | wola.bench | wola.log | wola.th | wola.gt (wola.gh) | wola.t | wola.m | wola.i | wola.u | wola-h"
                 ;;

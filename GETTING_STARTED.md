@@ -153,9 +153,15 @@ llama-server --version
 
 ## 4. Installing Wolarc
 
-### Running the Installer
+### Running the Installer (One-Command Setup)
 
-Clone the repository and run `install.sh`:
+You can install Wolarc completely with just a single command in your terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ovrrup/wolarc/main/install.sh | bash
+```
+
+Alternatively, clone the repository and run `install.sh`:
 
 ```bash
 cd ~
@@ -166,11 +172,11 @@ bash install.sh
 
 The installer performs an automated 6-step setup:
 1. **Hardware & Environment Check**: Evaluates total RAM, available storage, and detects whether running on Termux or Linux.
-2. **System Dependencies Check**: Verifies `python3`, `git`, `curl`, `openssh`, `poppler`, and `llama-server`.
+2. **System Dependencies Check**: Verifies `python3`, `git`, `curl`, `openssh`, `poppler`, `llama-server`, and the `go` compiler.
 3. **Pre-existing Setup & Conflict Inspection**: Detects running processes, prior configurations, and installed binaries.
 4. **Python Dependencies Setup**: Installs `flask`, `flask-cors`, `requests`, `numpy`, `watchdog`, and `gunicorn`.
 5. **Configuration Setup**: Initializes `~/.wolarc` and sets up `MODELS_DIR` and `KNOWLEDGE_DIR`.
-6. **Deploy Binaries & Symlinks**: Installs all CLI commands into your path (`$PREFIX/bin` or `~/.local/bin`).
+6. **Compile & Deploy Binaries**: Automatically compiles the high-performance Go Bubble Tea TUI (`wola-tui`) from source and installs all CLI commands into your path (`$PREFIX/bin` or `~/.local/bin`), symlinking `wola` directly to the TUI.
 
 ---
 
@@ -198,20 +204,26 @@ You can also pass these modes directly via CLI flags:
 
 ---
 
-### Installing the Modern Go TUI (`wola-tui`)
+### Modern Go TUI Integration (`wola` / `wola-tui`)
 
-Wolarc features a terminal user interface written in Go with Bubble Tea.
+Wolarc's primary interface is written in Go with Bubble Tea. During installation, `install.sh` automatically compiles `wola-tui` and symlinks it to `wola`.
 
-Pre-built binaries for all architectures (`linux/arm64`, `linux/amd64`, `darwin/arm64`, `windows/amd64`) are automatically compiled via GitHub Actions on every release.
-
-If you have pre-compiled binaries in `dist/` or downloaded from GitHub Releases:
+You can launch the entire suite with just:
 ```bash
-# On Termux (ARM64):
-cp dist/wola-tui-linux-arm64 $PREFIX/bin/wola-tui
-chmod +x $PREFIX/bin/wola-tui
+wola
 ```
 
-Once installed, running `wola.d` or `wola-tui` opens the Go TUI. If the Go binary is not present, `wola.d` smoothly falls back to the built-in Python dashboard.
+Subcommands are also supported directly:
+- `wola` — Launch Unified Go & Bubble Tea TUI (Dashboard)
+- `wola chat` / `wola c` — Jump directly to Interactive RAG Chat
+- `wola models` / `wola m` — Open Model Manager and GGUF Importer
+- `wola know` / `wola i` — Vector Knowledge Inspector & Semantic Search Tester
+- `wola logs` / `wola l` — Multi-Stream Live Log Follower
+- `wola status` — Quick non-interactive node telemetry
+- `wola start` / `wola r` — Start all services
+- `wola stop` / `wola k` — Stop all services
+- `wola restart` / `wola rs` — Restart all services
+- `wola url` — Display remote Gateway Tunnel URL
 
 ---
 

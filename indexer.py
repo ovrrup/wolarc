@@ -37,7 +37,18 @@ def load_db():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+            dirty = False
+            for k, doc in data.items():
+                for ch in doc.get("chunks", []):
+                    v = ch.get("vector", [])
+                    while isinstance(v, list) and len(v) > 0 and isinstance(v[0], list):
+                        v = v[0]
+                        ch["vector"] = v
+                        dirty = True
+            if dirty:
+                save_db(data)
+            return data
         except Exception:
             return {}
     return {}
@@ -60,22 +71,57 @@ def extract_text(filepath):
         return res.stdout.strip()
     return ""
 
+def extract_embedding_vector(data):
+    if not data:
+        return []
+    vec = []
+    if isinstance(data, list) and len(data) > 0:
+        first = data[0]
+        if isinstance(first, dict):
+            vec = first.get("embedding", [])
+        elif isinstance(first, list):
+            vec = first
+        elif isinstance(first, (int, float)):
+            vec = data
+    elif isinstance(data, dict):
+        if "embedding" in data:
+            vec = data["embedding"]
+        elif "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
+            first_item = data["data"][0]
+            if isinstance(first_item, dict):
+                vec = first_item.get("embedding", [])
+            elif isinstance(first_item, list):
+                vec = first_item
+
+    while isinstance(vec, list) and len(vec) > 0 and isinstance(vec[0], list):
+        vec = vec[0]
+
+    if isinstance(vec, list) and len(vec) > 0:
+        try:
+            return [float(x) for x in vec]
+        except Exception:
+            return []
+    return []
+
 def get_embedding(text):
-    try:
-        res = requests.post(EMBED_URL, json={"content": text}, timeout=15)
-        if res.status_code == 200:
-            data = res.json()
-            if isinstance(data, list) and len(data) > 0:
-                first = data[0]
-                return first.get("embedding", []) if isinstance(first, dict) else first
-            elif isinstance(data, dict):
-                if "embedding" in data:
-                    return data["embedding"]
-                data_list = data.get("data", [])
-                if data_list and isinstance(data_list[0], dict):
-                    return data_list[0].get("embedding", [])
-    except Exception:
-        pass
+    text_clean = text.strip()
+    if not text_clean:
+        return []
+    port = CFG.get("EMBED_PORT", "8081")
+    candidates = [
+        (f"http://127.0.0.1:{port}/v1/embeddings", {"input": text_clean}),
+        (f"http://127.0.0.1:{port}/embedding", {"content": text_clean}),
+        (f"http://127.0.0.1:{port}/embedding", {"input": text_clean}),
+    ]
+    for url, payload in candidates:
+        try:
+            res = requests.post(url, json=payload, timeout=20)
+            if res.status_code == 200:
+                vec = extract_embedding_vector(res.json())
+                if vec:
+                    return vec
+        except Exception:
+            continue
     return []
 
 def chunk_text(text, max_chars=CHUNK_SIZE):

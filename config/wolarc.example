@@ -28,6 +28,6 @@ TUNNEL_PROVIDER="auto" # 'auto' (fallback chain), 'localhost.run', 'serveo', or 
 
 # Inference & RAG Parameters
 TEMPERATURE="0.3"
-SIMILARITY_THRESHOLD="0.65"
+SIMILARITY_THRESHOLD="0.35"
 TOP_K="2"
 SYSTEM_PROMPT="You are an intelligent assistant. Ground facts using the provided notes, but blend them with your own base intelligence."
