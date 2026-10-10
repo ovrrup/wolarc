@@ -33,6 +33,7 @@ show_models() {
     echo "Usage:"
     echo "  wola.m chat <filename.gguf>   -> Set Chat LLM"
     echo "  wola.m embed <filename.gguf>  -> Set Embedding Model"
+    echo "  wola.m import [path]          -> Import local GGUF model"
     echo "  wola.m                        -> List models"
     echo "=================================================="
 }
@@ -83,6 +84,17 @@ case "$1" in
     "embed")
         [ -z "$2" ] && echo "[-] Specify model filename." && exit 1
         set_model "embed" "$2"
+        ;;
+    "import"|"add")
+        shift
+        if command -v wola.gt >/dev/null 2>&1; then
+            exec wola.gt import "$@"
+        elif command -v wola.gh >/dev/null 2>&1; then
+            exec wola.gh import "$@"
+        else
+            m_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            exec "$m_dir/wola.gt" import "$@"
+        fi
         ;;
     *)
         show_models

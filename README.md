@@ -13,8 +13,9 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 - **OpenAI-Compatible Gateway**: Exposes `/v1/chat/completions` and `/v1/models` (port 5000), supporting real-time SSE streaming.
 - **Real-Time Thinking Viewer (`wola.th`)**: Inspect model reasoning (`<think>` tokens) and RAG retrieval scores live as inference streams.
 - **Live Telemetry Dashboard (`wola.d`)**: Monitor tokens/second generation speed, prompt eval speed, token counts, and service health.
-- **In-Terminal Model Store (`wola.gt`)**: Search and download tested GGUF models directly from Hugging Face with compatibility & RAM verification.
-- **Zero-Config Remote Tunneling**: Automatically establishes an encrypted tunnel via `localhost.run` for remote access on phone or PC.
+- **In-Terminal Model Store & Importer (`wola.gt` / `wola.gh`)**: Search and download tested GGUF models directly from Hugging Face or import your own local `.gguf` files with automatic Move/Copy management and role assignment.
+- **Zero-Config Remote Tunneling**: Automatically establishes an encrypted tunnel via `localhost.run`, `serveo.net`, or `pinggy.io` for remote access on phone or PC.
+- **Smart Setup & Conflict Engine**: `install.sh` detects existing processes/configurations and offers Clean Slate (`--clean`), Adjust & Merge BETA (`--adjust`), or Safe Upgrade (`--upgrade`).
 - **Process & Power Management**: Integrated Termux wake-lock support and safe process lifecycle controls (`wola.r`, `wola.k`, `wola.rs`).
 
 ---
@@ -38,6 +39,7 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
   ┌────────────────────────┐   ┌──────────────┐   ┌──────────────┐
   │ Local Notes & Docs     │──>│ Embed Server │   │  Chat LLM    │
   │ (indexer.py background)│   │ (Port 8081)  │   │ (Port 8080)  │
+  │ └─ SHA-256 Deduplication   │ (Port 8081)  │   │              │
   └────────────────────────┘   └──────────────┘   └──────────────┘
 ```
 
@@ -67,13 +69,20 @@ cd wolarc
 bash install.sh
 ```
 
-This installs commands into `$PREFIX/bin` and initializes `~/.wolarc`.
+The installer detects existing files and processes and lets you choose between:
+- **[1] Clean Slate (`--clean`)**: Stops running services, cleans stale locks/logs, removes previous binaries while preserving downloaded models.
+- **[2] Adjust & Merge BETA (`--adjust`)**: Automatically reconciles paths, settings, and databases with existing setups.
+- **[3] Safe Upgrade (`--upgrade`)**: Seamlessly updates scripts and binaries without touching user configs.
 
-### 3. Download Models
+### 3. Download or Import Models
 
-Use the interactive model store to download curated GGUF models:
+Use the interactive model store or import local models from custom storage:
 ```bash
-wola.gt
+wola.gt          # or wola.gh
+# Or import a local file directly:
+wola.gt import /path/to/my-model.gguf
+# Or via model manager:
+wola.m import /path/to/my-model.gguf
 ```
 
 Choose from lightweight, mobile-tested models such as:
@@ -109,8 +118,8 @@ This boots:
 | `wola.bench` | **Hardware benchmark** (tokens/sec) & optimal thread auto-tuner |
 | `wola.log` | Unified live daemon **log follower** (`chat`, `embed`, `tunnel`) |
 | `wola.th` | Open the real-time **thinking stream viewer** |
-| `wola.gt` | Open the **model store** (browse & download from Hugging Face) |
-| `wola.m` | List models in `~/models` or switch active models (`wola.m chat <file>`) |
+| `wola.gt` / `wola.gh` | Open the **model store** & **local GGUF importer** (Hugging Face / custom storage) |
+| `wola.m` | List models in `~/models`, switch models, or import local GGUF (`wola.m import <path>`) |
 | `wola.t` | View and edit configuration parameters (`wola.t KEY VALUE`) |
 | `wola.i` | Manage vector index (`wola.i status`, `wola.i add <f>`, `wola.i search <q>`) |
 | `wola.u` | **Check for updates** & upgrade to latest release (`wola.u`) |

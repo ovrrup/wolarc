@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/python3
-import os, sys, requests, json, time, shutil
+import os, sys, requests, json, time, shutil, re
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -229,10 +229,36 @@ def download_file(url, target_filename, file_size=None):
         print(f"\n{C_RED}[-] Download interrupted: {e}{C_RESET}")
         return None
 
-def apply_to_config(filename, model_type):
-    confirm = input(f"\n{C_BOLD}Activate '{filename}' as your active {model_type.upper()} model in ~/.wolarc? (Y/n): {C_RESET}").strip().lower()
-    if confirm in ["", "y", "yes"]:
-        os.system(f"wola.m {model_type} {filename}")
+def apply_to_config(filename, model_type, prompt_confirm=True):
+    if prompt_confirm:
+        confirm = input(f"\n{C_BOLD}Activate '{filename}' as your active {model_type.upper()} model in ~/.wolarc? (Y/n): {C_RESET}").strip().lower()
+        if confirm not in ["", "y", "yes"]:
+            return
+    key = "CHAT_MODEL" if model_type == "chat" else "EMBED_MODEL"
+    cfg = os.path.expanduser("~/.wolarc")
+    if os.path.exists(cfg):
+        try:
+            with open(cfg, "r") as f:
+                lines = f.readlines()
+            pattern = re.compile(rf"^\s*{re.escape(key)}\s*=.*$")
+            found = False
+            new_lines = []
+            for line in lines:
+                if pattern.match(line):
+                    new_lines.append(f'{key}="{filename}"\n')
+                    found = True
+                else:
+                    new_lines.append(line)
+            if not found:
+                new_lines.append(f'{key}="{filename}"\n')
+            with open(cfg, "w") as f:
+                f.writelines(new_lines)
+            print(f"{C_GREEN}[+] Activated {model_type.upper()} Model -> {filename} in ~/.wolarc{C_RESET}")
+            return
+        except Exception as e:
+            print(f"{C_RED}[-] Direct config write failed: {e}{C_RESET}")
+    # Fallback to wola.m if available
+    os.system(f"wola.m {model_type} \"{filename}\" 2>/dev/null")
 
 def inspect_repo_and_download(repo_id, pipeline_tag=""):
     print(f"\n{C_CYAN}[*] Fetching file tree for {repo_id}...{C_RESET}")
@@ -391,7 +417,129 @@ def menu_delete():
         except Exception as e:
             print(f"{C_RED}[-] Deletion failed: {e}{C_RESET}")
 
+def copy_with_progress(src, dst):
+    total_bytes = os.path.getsize(src)
+    copied = 0
+    start_time = time.time()
+    last_render = 0
+    with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+        while True:
+            buf = fsrc.read(4 * 1024 * 1024)
+            if not buf:
+                break
+            fdst.write(buf)
+            copied += len(buf)
+            now = time.time()
+            if now - last_render >= 0.25:
+                last_render = now
+                pct = (copied / max(1, total_bytes)) * 100
+                spd = copied / max(0.001, now - start_time) / (1024 * 1024)
+                sys.stdout.write(f"\r  Copying: [{pct:5.1f}%] {format_bytes(copied)} / {format_bytes(total_bytes)} @ {spd:4.1f} MB/s ")
+                sys.stdout.flush()
+    print(f"\r  Copying: [100.0%] {format_bytes(total_bytes)} complete!               ")
+
+def menu_import_local(initial_path=None):
+    print(f"\n{C_CYAN}================================================================={C_RESET}")
+    print(f"             {C_BOLD}IMPORT LOCAL GGUF MODEL FROM STORAGE{C_RESET}")
+    print(f"{C_CYAN}================================================================={C_RESET}")
+    
+    if not initial_path:
+        target_input = input(f"{C_BOLD}Enter path to GGUF file or directory: {C_RESET}").strip()
+    else:
+        target_input = initial_path.strip()
+
+    if not target_input:
+        return
+
+    resolved_path = os.path.expanduser(os.path.expandvars(target_input.strip("\"' ")))
+    if not os.path.exists(resolved_path):
+        print(f"{C_RED}[-] Path does not exist: {resolved_path}{C_RESET}")
+        return
+
+    # If user provided a directory, scan for .gguf files
+    if os.path.isdir(resolved_path):
+        found = [f for f in os.listdir(resolved_path) if f.lower().endswith(".gguf")]
+        if not found:
+            print(f"{C_YELLOW}[-] No .gguf files found in {resolved_path}{C_RESET}")
+            return
+        print(f"\n{C_CYAN}GGUF models found in {resolved_path}:{C_RESET}")
+        for idx, f in enumerate(found, 1):
+            f_size = os.path.getsize(os.path.join(resolved_path, f))
+            print(f"  {C_BOLD}[{idx}]{C_RESET} {f} ({format_bytes(f_size)})")
+        print(f"  {C_BOLD}[0]{C_RESET} Cancel")
+        sel = input(f"{C_BOLD}Select file [1-{len(found)}]: {C_RESET}").strip()
+        if not sel.isdigit() or int(sel) < 1 or int(sel) > len(found):
+            return
+        chosen_file = found[int(sel) - 1]
+        source_path = os.path.join(resolved_path, chosen_file)
+    else:
+        source_path = resolved_path
+
+    if not source_path.lower().endswith(".gguf"):
+        print(f"{C_YELLOW}[!] Warning: '{os.path.basename(source_path)}' does not have a .gguf extension.{C_RESET}")
+        proceed = input("Proceed anyway? (y/N): ").strip().lower()
+        if proceed != "y":
+            return
+
+    filename = os.path.basename(source_path)
+    file_size = os.path.getsize(source_path)
+    dest_path = os.path.join(MODELS_DIR, filename)
+
+    print(f"\nTarget File : {C_GREEN}{filename}{C_RESET} ({format_bytes(file_size)})")
+    print(f"Models Dir  : {C_CYAN}{MODELS_DIR}{C_RESET}")
+
+    if os.path.abspath(source_path) == os.path.abspath(dest_path):
+        print(f"\n{C_YELLOW}[*] File is already in the Wola models directory.{C_RESET}")
+    else:
+        print(f"\n{C_CYAN}-----------------------------------------------------------------{C_RESET}")
+        print(f"How would you like to bring this model into Wola's models directory?")
+        print(f"  {C_BOLD}[1] Move{C_RESET} file into {MODELS_DIR} (Saves storage space)")
+        print(f"  {C_BOLD}[2] Copy{C_RESET} file into {MODELS_DIR} (Preserves original file)")
+        print(f"  {C_BOLD}[0]{C_RESET} Cancel")
+        print(f"{C_CYAN}-----------------------------------------------------------------{C_RESET}")
+        action = input(f"{C_BOLD}Select choice [1=Move / 2=Copy / 0=Cancel]: {C_RESET}").strip().lower()
+
+        if action in ["1", "m", "move"]:
+            print(f"[*] Moving {filename}...")
+            shutil.move(source_path, dest_path)
+            print(f"{C_GREEN}[+] Moved '{filename}' to {MODELS_DIR}{C_RESET}")
+        elif action in ["2", "c", "copy"]:
+            free_space = shutil.disk_usage(MODELS_DIR).free
+            if file_size > free_space:
+                print(f"{C_RED}[-] Not enough disk space to copy (Needs {format_bytes(file_size)}, Free: {format_bytes(free_space)}){C_RESET}")
+                return
+            copy_with_progress(source_path, dest_path)
+            print(f"{C_GREEN}[+] Copied '{filename}' to {MODELS_DIR}{C_RESET}")
+        else:
+            print("Import cancelled.")
+            return
+
+    # Role assignment prompt
+    print(f"\n{C_CYAN}-----------------------------------------------------------------{C_RESET}")
+    print(f"Assign '{filename}' role in ~/.wolarc:")
+    print(f"  [c] Set as Active Chat LLM (wola.m chat {filename})")
+    print(f"  [e] Set as Active Embedding Model (wola.m embed {filename})")
+    print(f"  [n] None / Don't activate right now")
+    print(f"{C_CYAN}-----------------------------------------------------------------{C_RESET}")
+    role = input(f"{C_BOLD}Assign role [c/e/n]: {C_RESET}").strip().lower()
+
+    if role == "c":
+        apply_to_config(filename, "chat", prompt_confirm=False)
+    elif role == "e":
+        apply_to_config(filename, "embed", prompt_confirm=False)
+    else:
+        print(f"{C_GREEN}[+] Model is ready in {MODELS_DIR}! Activate later with 'wola.m chat {filename}'{C_RESET}")
+
 def main():
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg in ["import", "add"] and len(sys.argv) > 2:
+            menu_import_local(sys.argv[2])
+            return
+        elif os.path.exists(os.path.expanduser(arg)):
+            menu_import_local(arg)
+            return
+
     while True:
         sys.stdout.write("\033[2J\033[H")
         free_gb = shutil.disk_usage(MODELS_DIR).free // (1024**3)
@@ -406,7 +554,8 @@ def main():
         print(f"  {C_BOLD}[2]{C_RESET} Curated Chat LLMs (Gemma, Qwen, Llama, Phi)")
         print(f"  {C_BOLD}[3]{C_RESET} Curated Embedding Models (BGE, Nomic, Gemma-Embed)")
         print(f"  {C_BOLD}[4]{C_RESET} Enter HF Repo Manually (e.g. bartowski/Qwen2.5-1.5B-Instruct-GGUF)")
-        print(f"  {C_BOLD}[5]{C_RESET} {C_RED}Delete Models{C_RESET} (Free up disk space)")
+        print(f"  {C_BOLD}[5]{C_RESET} {C_YELLOW}Import Local GGUF Model{C_RESET} (From custom directory/storage)")
+        print(f"  {C_BOLD}[6]{C_RESET} {C_RED}Delete Models{C_RESET} (Free up disk space)")
         print(f"  {C_BOLD}[0]{C_RESET} Exit")
         print("=================================================================")
 
@@ -422,6 +571,8 @@ def main():
             if repo and "/" in repo:
                 inspect_repo_and_download(repo)
         elif ans == "5":
+            menu_import_local()
+        elif ans == "6":
             menu_delete()
         elif ans == "0":
             break

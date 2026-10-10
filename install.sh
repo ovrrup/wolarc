@@ -29,10 +29,12 @@ MODE="interactive"
 while [ $# -gt 0 ]; do
     case "$1" in
         "--upgrade"|"-u") MODE="upgrade" ;;
+        "--clean") MODE="clean" ;;
+        "--adjust") MODE="adjust" ;;
         "-y"|"--yes"|"--unattended") MODE="unattended" ;;
         "--prefix") TARGET_BIN="$2"; shift ;;
         "--help"|"-h")
-            echo "Usage: bash install.sh [--upgrade | -y | --prefix <path>]"
+            echo "Usage: bash install.sh [--upgrade | --clean | --adjust | -y | --prefix <path>]"
             exit 0
             ;;
     esac
@@ -53,7 +55,7 @@ print_banner() {
 }
 
 print_step() {
-    echo -e "\n${C_BOLD}${C_CYAN}[Step $1/5]${C_RESET} ${C_BOLD}$2${C_RESET}"
+    echo -e "\n${C_BOLD}${C_CYAN}[Step $1/6]${C_RESET} ${C_BOLD}$2${C_RESET}"
 }
 
 # -------------------------------------------------------------
@@ -143,10 +145,296 @@ check_dependencies() {
 }
 
 # -------------------------------------------------------------
-# STEP 3: Python Environment & Dependencies
+# STEP 3: Pre-existing Setup & Conflict Inspection
+# -------------------------------------------------------------
+detect_and_handle_conflicts() {
+    print_step "3" "Pre-existing Setup & Conflict Inspection"
+
+    local conflicts_found=false
+    local proc_list=()
+    local file_list=()
+    local bin_list=()
+
+    # 1. Active interfering processes
+    if pgrep -f "llama-server" >/dev/null 2>&1; then
+        local pids
+        pids=$(pgrep -f "llama-server" | tr '\n' ' ')
+        proc_list+=("llama-server (PIDs: $pids)")
+        conflicts_found=true
+    fi
+    if pgrep -f "agent.py" >/dev/null 2>&1; then
+        local pids
+        pids=$(pgrep -f "agent.py" | tr '\n' ' ')
+        proc_list+=("agent.py (PIDs: $pids)")
+        conflicts_found=true
+    fi
+    if pgrep -f "ssh.*(localhost.run|serveo.net|pinggy.io)" >/dev/null 2>&1; then
+        local pids
+        pids=$(pgrep -f "ssh.*(localhost.run|serveo.net|pinggy.io)" | tr '\n' ' ')
+        proc_list+=("Wola SSH tunnel daemon (PIDs: $pids)")
+        conflicts_found=true
+    fi
+
+    # 2. Existing configuration & daemons in $HOME
+    [ -f "$HOME/.wolarc" ] && file_list+=("$HOME/.wolarc (configuration)") && conflicts_found=true
+    [ -f "$HOME/agent.py" ] && file_list+=("$HOME/agent.py (API server script)") && conflicts_found=true
+    [ -f "$HOME/indexer.py" ] && file_list+=("$HOME/indexer.py (RAG indexer script)") && conflicts_found=true
+    [ -f "$HOME/.wola.lock" ] && file_list+=("$HOME/.wola.lock (runtime lock)") && conflicts_found=true
+    [ -f "$HOME/knowledge_db.json" ] && file_list+=("$HOME/knowledge_db.json (vector database)") && conflicts_found=true
+
+    for logf in "$HOME/agent.log" "$HOME/tunnel.log" "$HOME/llama_chat.log" "$HOME/llama_embed.log" "$HOME/.wola_url" "$HOME/.wola_bench_cache.json" "$HOME/.wola_update_cache.json"; do
+        if [ -f "$logf" ]; then
+            file_list+=("$logf")
+            conflicts_found=true
+        fi
+    done
+
+    # 3. Installed binaries / symlinks in $TARGET_BIN
+    if [ -d "$TARGET_BIN" ]; then
+        for b in "$TARGET_BIN"/wola* "$TARGET_BIN"/wolarc; do
+            if [ -e "$b" ] || [ -L "$b" ]; then
+                bin_list+=("$b")
+                conflicts_found=true
+            fi
+        done
+    fi
+
+    if [ "$conflicts_found" = false ]; then
+        echo -e "  ${C_GREEN}✓ Clean environment verified.${C_RESET} No conflicting processes or existing files found."
+        return 0
+    fi
+
+    echo -e "  ${C_YELLOW}⚠ Pre-existing Wola setup or potentially interfering files/processes detected!${C_RESET}"
+
+    if [ ${#proc_list[@]} -gt 0 ]; then
+        echo -e "\n  ${C_BOLD}${C_RED}[Active Processes]${C_RESET}"
+        for p in "${proc_list[@]}"; do
+            echo -e "    • $p"
+        done
+    fi
+
+    if [ ${#file_list[@]} -gt 0 ]; then
+        echo -e "\n  ${C_BOLD}${C_YELLOW}[Existing Config, Daemons & Runtime Files]${C_RESET}"
+        for f in "${file_list[@]}"; do
+            echo -e "    • $f"
+        done
+    fi
+
+    if [ ${#bin_list[@]} -gt 0 ]; then
+        echo -e "\n  ${C_BOLD}${C_CYAN}[Existing Binaries in $TARGET_BIN (${#bin_list[@]} items)]${C_RESET}"
+        local sample_bins=("${bin_list[@]:0:5}")
+        for b in "${sample_bins[@]}"; do
+            echo -e "    • $(basename "$b")"
+        done
+        if [ ${#bin_list[@]} -gt 5 ]; then
+            echo -e "    • ... and $((${#bin_list[@]} - 5)) more"
+        fi
+    fi
+
+    echo ""
+    echo -e "${C_CYAN}-----------------------------------------------------------------${C_RESET}"
+    echo -e "How would you like to handle existing files and directories?"
+    echo -e "  ${C_BOLD}[1] Delete / Clean Slate${C_RESET} (Remove interfering files & stop processes)"
+    echo -e "      ${C_DIM}Stops running instances, clears stale locks/logs, removes old binaries.${C_RESET}"
+    echo -e "      ${C_GREEN}Note: Downloaded models in ~/models are safely preserved.${C_RESET}"
+    echo ""
+    echo -e "  ${C_BOLD}[2] Adjust & Merge (BETA)${C_RESET} (Reconcile paths, adapt config & databases)"
+    echo -e "      ${C_YELLOW}⚠️  BETA FEATURE: May modify or harm existing files & directories!${C_RESET}"
+    echo ""
+    echo -e "  ${C_BOLD}[3] Safe Upgrade${C_RESET} (Retain existing configuration and proceed)"
+    echo -e "${C_CYAN}-----------------------------------------------------------------${C_RESET}"
+
+    local choice=""
+    if [ "$MODE" = "clean" ]; then
+        choice="1"
+    elif [ "$MODE" = "adjust" ]; then
+        choice="2"
+    elif [ "$MODE" = "upgrade" ] || [ "$MODE" = "unattended" ]; then
+        choice="3"
+    else
+        read -p "Select option [1=Clean / 2=Adjust (BETA) / 3=Safe Upgrade]: " choice
+    fi
+
+    case "$choice" in
+        1|"clean")
+            echo -e "\n[*] Cleaning interfering processes and files..."
+            pkill -f "llama-server" 2>/dev/null || true
+            pkill -f "agent.py" 2>/dev/null || true
+            pkill -f "ssh.*(localhost.run|serveo.net|pinggy.io)" 2>/dev/null || true
+            sleep 1
+
+            rm -f "$HOME/.wola.lock" "$HOME/.wola_url" "$HOME/.wola_version" "$HOME/.wola_bench_cache.json" "$HOME/.wola_update_cache.json"
+            rm -f "$HOME/agent.log" "$HOME/tunnel.log" "$HOME/llama_chat.log" "$HOME/llama_embed.log"
+            rm -f "$HOME/agent.py" "$HOME/indexer.py"
+
+            if [ -d "$TARGET_BIN" ]; then
+                for b in "$TARGET_BIN"/wola* "$TARGET_BIN"/wolarc; do
+                    rm -f "$b" 2>/dev/null || true
+                done
+            fi
+
+            if [ -f "$HOME/.wolarc" ]; then
+                local bak="$HOME/.wolarc.bak.$(date +%s)"
+                cp "$HOME/.wolarc" "$bak"
+                echo -e "  ${C_DIM}Backed up previous ~/.wolarc to $bak${C_RESET}"
+                rm -f "$HOME/.wolarc"
+            fi
+
+            echo -e "  ${C_GREEN}✓ Cleaned interfering files and stopped active processes.${C_RESET}"
+            echo -e "  ${C_GREEN}✓ ~/models directory and .gguf files preserved intact.${C_RESET}"
+            ;;
+
+        2|"adjust")
+            echo -e "\n${C_RED}╔══════════════════════════════════════════════════════════════════╗${C_RESET}"
+            echo -e "${C_RED}║                 ⚠️  WARNING: BETA FEATURE                        ║${C_RESET}"
+            echo -e "${C_RED}╠══════════════════════════════════════════════════════════════════╣${C_RESET}"
+            echo -e "${C_YELLOW}║ You have chosen to let Wolarc ADJUST the existing setup.         ║"
+            echo -e "║                                                                  ║"
+            echo -e "║ This is an experimental BETA feature. Automatic adjustment will  ║"
+            echo -e "║ inspect, adapt, and rewrite existing configuration files,        ║"
+            echo -e "║ directories, and runtime environments.                           ║"
+            echo -e "║                                                                  ║"
+            echo -e "║ ${C_BOLD}${C_RED}WARNING: THIS MAY RESULT IN MODIFYING OR HARMING YOUR FILES      ${C_RESET}${C_YELLOW}║"
+            echo -e "║ ${C_BOLD}${C_RED}AND DIRECTORIES, INCLUDING CUSTOM PATHS AND DATABASES!           ${C_RESET}${C_YELLOW}║"
+            echo -e "╚══════════════════════════════════════════════════════════════════╝${C_RESET}"
+
+            local confirm_adjust="y"
+            if [ "$MODE" != "adjust" ] && [ "$MODE" != "unattended" ]; then
+                read -p "Are you sure you want Wolarc to adjust existing setup? (y/N): " confirm_adjust
+            fi
+
+            if [[ ! "$confirm_adjust" =~ ^[Yy] ]]; then
+                echo -e "Adjustment cancelled. Proceeding with Safe Upgrade."
+                return 0
+            fi
+
+            echo -e "\n[*] Running Wolarc Beta Adjustment & Reconciliation engine..."
+            pkill -f "llama-server" 2>/dev/null || true
+            pkill -f "agent.py" 2>/dev/null || true
+            pkill -f "ssh.*(localhost.run|serveo.net|pinggy.io)" 2>/dev/null || true
+            rm -f "$HOME/.wola.lock"
+
+            python3 -c "
+import os, sys, re, json, shutil, time
+
+home = os.path.expanduser('~')
+cfg_path = os.path.join(home, '.wolarc')
+repo_dir = '$DIR'
+default_knowledge = '$DEFAULT_KNOWLEDGE'
+
+print('  • Reconciling directories and paths...')
+models_dir = os.path.join(home, 'models')
+knowledge_dir = default_knowledge
+
+if os.path.exists(cfg_path):
+    bak = f'{cfg_path}.bak.{int(time.time())}'
+    shutil.copy2(cfg_path, bak)
+    print(f'    - Backed up ~/.wolarc to {bak}')
+
+    existing_vars = {}
+    with open(cfg_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                k, v = line.split('=', 1)
+                existing_vars[k.strip()] = v.strip('\"\' ')
+
+    if 'MODELS_DIR' in existing_vars:
+        models_dir = os.path.expanduser(existing_vars['MODELS_DIR'])
+    if 'KNOWLEDGE_DIR' in existing_vars:
+        knowledge_dir = os.path.expanduser(existing_vars['KNOWLEDGE_DIR'])
+
+os.makedirs(models_dir, exist_ok=True)
+os.makedirs(knowledge_dir, exist_ok=True)
+print(f'    - Verified Models Dir: {models_dir}')
+print(f'    - Verified Knowledge Dir: {knowledge_dir}')
+
+existing_ggufs = [f for f in os.listdir(models_dir) if f.lower().endswith('.gguf')] if os.path.exists(models_dir) else []
+chat_candidate = None
+embed_candidate = None
+
+for g in existing_ggufs:
+    g_low = g.lower()
+    if ('embed' in g_low or 'bge' in g_low) and not embed_candidate:
+        embed_candidate = g
+    elif ('embed' not in g_low and 'bge' not in g_low) and not chat_candidate:
+        chat_candidate = g
+
+example_cfg = os.path.join(repo_dir, 'config', 'wolarc.example')
+template_lines = []
+if os.path.exists(example_cfg):
+    with open(example_cfg, 'r') as f:
+        template_lines = f.readlines()
+
+new_config = []
+if not os.path.exists(cfg_path):
+    new_config = template_lines
+else:
+    with open(cfg_path, 'r') as f:
+        current_lines = f.readlines()
+
+    keys_present = set()
+    for l in current_lines:
+        m = re.match(r'^\s*([A-Za-z0-9_]+)=', l)
+        if m:
+            k = m.group(1)
+            keys_present.add(k)
+            if k == 'CHAT_MODEL' and chat_candidate:
+                val = l.split('=', 1)[1].strip('\"\' \n')
+                if not val or not os.path.exists(os.path.join(models_dir, val)):
+                    l = f'CHAT_MODEL=\"{chat_candidate}\"\n'
+                    print(f'    - Adjusted CHAT_MODEL -> {chat_candidate}')
+            elif k == 'EMBED_MODEL' and embed_candidate:
+                val = l.split('=', 1)[1].strip('\"\' \n')
+                if not val or not os.path.exists(os.path.join(models_dir, val)):
+                    l = f'EMBED_MODEL=\"{embed_candidate}\"\n'
+                    print(f'    - Adjusted EMBED_MODEL -> {embed_candidate}')
+        new_config.append(l)
+
+    for tl in template_lines:
+        tm = re.match(r'^\s*([A-Za-z0-9_]+)=', tl)
+        if tm and tm.group(1) not in keys_present:
+            new_config.append(tl)
+            print(f'    - Injected missing parameter: {tm.group(1)}')
+
+with open(cfg_path, 'w') as f:
+    f.writelines(new_config)
+print('    - ~/.wolarc successfully reconciled and updated.')
+
+db_path = os.path.join(home, 'knowledge_db.json')
+if os.path.exists(db_path):
+    try:
+        with open(db_path, 'r') as f:
+            json.load(f)
+        print('    - knowledge_db.json verified valid JSON.')
+    except Exception:
+        corrupt_bak = f'{db_path}.corrupted.{int(time.time())}'
+        shutil.move(db_path, corrupt_bak)
+        with open(db_path, 'w') as f:
+            json.dump({}, f)
+        print(f'    - [!] Repaired corrupted knowledge_db.json (backed up to {corrupt_bak})')
+
+for lf in ['agent.log', 'tunnel.log', 'llama_chat.log', 'llama_embed.log']:
+    lp = os.path.join(home, lf)
+    if os.path.exists(lp) and os.path.getsize(lp) > 10 * 1024 * 1024:
+        with open(lp, 'w') as f:
+            pass
+        print(f'    - Truncated bloated log: {lf}')
+"
+            echo -e "  ${C_GREEN}✓ Environment and configurations adjusted.${C_RESET}"
+            ;;
+
+        *)
+            echo -e "\n[*] Proceeding with Safe Upgrade (keeping existing files and configs)..."
+            ;;
+    esac
+}
+
+# -------------------------------------------------------------
+# STEP 4: Python Environment & Dependencies
 # -------------------------------------------------------------
 setup_python() {
-    print_step "3" "Python Dependencies Setup"
+    print_step "4" "Python Dependencies Setup"
 
     if [ -f "$DIR/requirements.txt" ]; then
         echo -e "  [*] Installing requirements (flask, flask-cors, requests, numpy, watchdog)..."
@@ -156,10 +444,10 @@ setup_python() {
 }
 
 # -------------------------------------------------------------
-# STEP 4: Configuration & Knowledge Directories
+# STEP 5: Configuration & Knowledge Directories
 # -------------------------------------------------------------
 setup_config() {
-    print_step "4" "Configuration Setup"
+    print_step "5" "Configuration Setup"
 
     local models_dir="$HOME/models"
     local knowledge_dir="$DEFAULT_KNOWLEDGE"
@@ -212,10 +500,10 @@ with open(path, 'w') as f: f.writelines(lines)
 }
 
 # -------------------------------------------------------------
-# STEP 5: Deploy Binaries & Create Symlinks
+# STEP 6: Deploy Binaries & Create Symlinks
 # -------------------------------------------------------------
 deploy_binaries() {
-    print_step "5" "Installing Executables into ${TARGET_BIN}"
+    print_step "6" "Installing Executables into ${TARGET_BIN}"
 
     mkdir -p "$TARGET_BIN"
 
@@ -225,8 +513,10 @@ deploy_binaries() {
 
     # Deploy all commands in bin/
     for f in "$DIR/bin"/*; do
+        [ -d "$f" ] && continue
         [ -e "$f" ] || continue
         fname=$(basename "$f")
+        [ "$fname" = "wola.gh" ] && continue
         cp "$f" "$TARGET_BIN/$fname"
         chmod +x "$TARGET_BIN/$fname"
     done
@@ -241,6 +531,7 @@ deploy_binaries() {
     ln -sf "$TARGET_BIN/wola.chat" "$TARGET_BIN/wola.c"
     ln -sf "$TARGET_BIN/wola.bench" "$TARGET_BIN/wola.b"
     ln -sf "$TARGET_BIN/wola.log" "$TARGET_BIN/wola.logs"
+    ln -sf "$TARGET_BIN/wola.gt" "$TARGET_BIN/wola.gh"
 
     # Save commit version if in git repo
     if [ -d "$DIR/.git" ]; then
@@ -248,7 +539,7 @@ deploy_binaries() {
     fi
 
     echo -e "  ${C_GREEN}✓ Installed commands into ${TARGET_BIN}:${C_RESET}"
-    echo -e "    wola.r  wola.k  wola.rs  wola.d  wola.url  wola.chat  wola.bench  wola.log  wola.th  wola.gt  wola.t  wola.m  wola.i  wola.u  wola-h"
+    echo -e "    wola.r  wola.k  wola.rs  wola.d  wola.url  wola.chat  wola.bench  wola.log  wola.th  wola.gt  wola.gh  wola.t  wola.m  wola.i  wola.u  wola-h"
 }
 
 # -------------------------------------------------------------
@@ -267,7 +558,7 @@ post_install() {
     echo -e "    ${C_YELLOW}wola.bench${C_RESET} • Measure token speed & auto-tune hardware threads"
     echo -e "    ${C_DIM}wola.log${C_RESET}   • Unified live log monitor & diagnostics"
     echo -e "    ${C_MAGENTA}wola.th${C_RESET}    • Real-time Thinking Stream Viewer"
-    echo -e "    ${C_GREEN}wola.gt${C_RESET}    • Model Store (Download GGUF models)"
+    echo -e "    ${C_GREEN}wola.gt${C_RESET}    • Model Store & Local GGUF Importer (wola.gh)"
     echo -e "    ${C_YELLOW}wola.u${C_RESET}     • Built-in Update Checker and Installer"
     echo -e "    ${C_YELLOW}wola-h${C_RESET}     • Interactive Command Center"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
@@ -276,7 +567,7 @@ post_install() {
     local models_count=$(find "$HOME/models" -maxdepth 1 -name "*.gguf" 2>/dev/null | wc -l)
     if [ "$models_count" -eq 0 ] && [ "$MODE" = "interactive" ]; then
         echo -e "\n${C_YELLOW}[!] No GGUF models detected in ~/models.${C_RESET}"
-        read -p "Would you like to launch the Model Store (wola.gt) now to download one? (Y/n): " store_ans
+        read -p "Would you like to launch the Model Store (wola.gt / wola.gh) now to download or import one? (Y/n): " store_ans
         store_ans=${store_ans:-y}
         if [[ "$store_ans" =~ ^[Yy] ]]; then
             exec "$TARGET_BIN/wola.gt"
@@ -288,6 +579,7 @@ post_install() {
 print_banner
 diagnose_hardware
 check_dependencies
+detect_and_handle_conflicts
 setup_python
 setup_config
 deploy_binaries
