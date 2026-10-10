@@ -26,6 +26,7 @@
 | **Thinking Reasoning** | `wola.think` | `wola.th` | `wola think` / `wola th` | Toggle reasoning tokens (`on` / `off` / `status`) or follow stream |
 | **Remote Gateway Link**| `wola.link` | `wola.url` | `wola link` / `wola url` | Show public tunnel URL, QR code, ping latency & copy endpoint |
 | **Local Hotspot Gateway**| `wola.hotspot`| `wola.local` | `wola hotspot` / `wola local`| Offline local gateway, zero-dependency Web Chat UI, and QR pairing |
+| **Tailscale Mesh VPN** | `wola.tailscale`| `wola.ts` | `wola tailscale` / `wola ts` | Encrypted WireGuard mesh peer connectivity, MagicDNS, Serve & Funnel |
 | **Parameter Tuner** | `wola.config` | `wola.t` | `wola config` / `wola t` | View and edit runtime inference hyperparameters in `~/.wolarc` |
 | **Software Update** | `wola.update` | `wola.u` | `wola update` / `wola u` | Check for updates, pull releases, and upgrade binaries |
 | **Command Center Wizard**| `wola.help` | `wola.h` | `wola help` / `wola h` | Interactive menu wizard with status overview and quick launchers |
@@ -133,61 +134,153 @@ Toggles default interface behavior when running `wola` without arguments:
 
 ---
 
-## 3. Remote Gateway & Connectivity
+---
 
-### `wola.url`
-Manages public network access and remote device pairing.
+## 3. Remote Gateway, Tailscale Mesh & Connectivity Suite
+
+Wolarc features a multi-tiered connectivity architecture supporting local air-gapped hotspots, encrypted peer-to-peer WireGuard mesh VPNs via Tailscale, and persistent public HTTPS tunnels managed by an autonomous background watchdog daemon.
+
+### `wola.link` / `wola.url`
+Manages public network access, tunnels, and connectivity diagnostics.
+
+> **Command Pair**: `wola.link` (Casual) <-> `wola.url` (Technical). Subcommands: `wola link` / `wola url`.
 
 ```bash
-# Display public URL, ping latency, and QR code
+# Display active public URL, ping latency, and terminal QR code
+wola.link
+# or
 wola.url
 
-# Reconnect or switch tunnel provider
-wola.url reconnect
+# Run multi-route latency & reachability benchmark across all interfaces
+wola.link test
+
+# Display comprehensive connection audit and watchdog status
+wola.link status
+
+# Switch tunnel provider directly (cloudflare, localhost.run, serveo, pinggy)
+wola.link switch cloudflare
+wola.link switch localhost.run
+
+# Force immediate tunnel renegotiation & watchdog restart
+wola.link reconnect
+
+# Render terminal QR code for phone camera scanning
+wola.link qr
+
+# Copy active public /v1 API endpoint to clipboard
+wola.link copy
+
+# Output raw base URL or /v1 endpoint (for shell scripts)
+wola.link raw
+wola.link api
 ```
 
-#### Features:
-- **Resilient Multi-Provider Fallback**: Automatically cascades across `localhost.run` -> `serveo.net` -> `pinggy.io`.
-- **Latency Ping**: Measures HTTP round-trip latency to verify tunnel health.
-- **ASCII QR Code**: Generates an interactive terminal QR code for camera scanning from mobile devices.
-- **Clipboard Sync**: Automatically copies `https://<tunnel-url>/v1` to the clipboard using `termux-clipboard-set` or `xclip`.
-- **Local IP Fallback**: Displays LAN endpoint (e.g. `http://192.168.1.X:5000/v1`) for local Wi-Fi clients.
+#### Multi-Route Benchmark & Audit (`wola.link test`):
+Performs an automated latency ping and port sweep across every available layer:
+- **Localhost Loopback**: Tests local `127.0.0.1:5000/health` response latency.
+- **Local Wi-Fi LAN**: Benchmarks local Wi-Fi interface latency.
+- **Mobile Hotspot**: Tests reachability when serving as an access point.
+- **Tailscale Mesh**: Measures WireGuard peer latency over Tailscale.
+- **Public Tunnel**: Pings the active public HTTPS endpoint through Cloudflare or SSH.
+- **Outbound Provider Sweep**: Probes outbound ports 22/443 reachability to determine which tunnel providers are accessible on your current ISP or cellular network.
 
-### `wola.local` / `wola.hotspot`
+---
+
+### `wola.tailscale` / `wola.ts`
+Tailscale WireGuard Mesh VPN integration for secure, direct peer-to-peer access from any device worldwide without public tunnels or port forwarding.
+
+> **Command Pair**: `wola.tailscale` (Casual) <-> `wola.ts` (Technical). Subcommands: `wola tailscale` / `wola ts` / `wola.link tailscale`.
+
+```bash
+# Inspect Tailscale mesh IP, connection links, and status
+wola.tailscale
+# or
+wola.ts
+# or
+wola.link tailscale
+
+# Display Tailscale QR code for mobile connection
+wola.ts qr
+
+# Copy Tailscale API endpoint (http://100.x.y.z:5000/v1) to clipboard
+wola.ts copy
+
+# View interactive Tailscale setup and activation guide
+wola.ts guide
+
+# Configure Tailscale Serve (exposes Wola locally on your tailnet)
+wola.ts serve
+
+# Configure Tailscale Funnel (public HTTPS over Tailscale infrastructure)
+wola.ts funnel
+```
+
+#### Tailscale Dual-Mode Operation:
+- **Android OS VPN App Support**: Detects Tailscale running via the official Android VPN client by inspecting interface IP assignments (`100.64.0.0/10` on `tun*`), requiring zero root privileges or command-line setup.
+- **Termux & Linux CLI Support**: When the `tailscale` CLI is present in `$PATH`, Wolarc automatically queries MagicDNS hostnames (e.g., `http://my-phone.tailnet-xyz.ts.net:5000/`), status states, and supports direct `serve` and `funnel` orchestration.
+- **Universal CORS Header Support**: Automatically injects permissive CORS headers (`Access-Control-Allow-Origin: *`) on all responses, allowing browser-based AI clients (NextChat Web, Chatbox Web) hosted anywhere to connect directly to your Tailscale mesh IP.
+
+---
+
+### Autonomous Tunnel Watchdog Daemon (`bin/wola-tunnel-daemon`)
+A resilient, self-healing background supervisor that ensures remote connectivity never drops:
+
+- **Automated Lifecycle**: Starts automatically when Wolarc boots (`wola.start` / `wola.r`) and terminates cleanly when stopped (`wola.stop` / `wola.k`).
+- **Autonomous Health Checks**: Pings `${url}/health` every 20 seconds.
+- **Automatic Multi-Provider Cascading**: If 2 consecutive health checks fail, the watchdog automatically cascades to the next available provider:
+  1. **Cloudflare Quick Tunnels** (`trycloudflare.com`): Zero rate limits, high bandwidth, and robust HTTPS via `cloudflared`.
+  2. **localhost.run**: Low-latency SSH reverse tunnel.
+  3. **serveo.net**: Resilient secondary SSH tunnel.
+  4. **pinggy.io**: Alternative fallback tunnel.
+- **Persistent Process Management**: Tracks background PIDs in `~/.wola_tunnel_daemon.pid` and logs all health events to `~/tunnel.log`.
+
+```bash
+# Inspect watchdog daemon state and provider health
+wola-tunnel-daemon status
+
+# Manually trigger a watchdog reconnect cascade
+wola-tunnel-daemon reconnect
+```
+
+---
+
+### `wola.hotspot` / `wola.local`
 Provides air-gapped local network connectivity and pairing for offline environments:
+
+> **Command Pair**: `wola.hotspot` (Casual) <-> `wola.local` (Technical). Subcommands: `wola hotspot` / `wola local` / `wola.link local`.
 
 ```bash
 # Display local IP interfaces, Web UI link, and terminal QR code
-wola.local
-# or
 wola.hotspot
+# or
+wola.local
 
 # Generate standalone QR code in terminal for mobile scanning
-wola.local qr
+wola.hotspot qr
 
 # Copy primary local URL to clipboard
-wola.local copy
+wola.hotspot copy
 
 # Output raw local URL (for scripting)
-wola.local raw
+wola.hotspot raw
 
 # Print /v1 API endpoint
-wola.local api
+wola.hotspot api
 ```
 
 #### Multi-Interface Auto-Detection:
 - **Local Wi-Fi LAN**: Detects assigned IP on active wireless networks (e.g., `http://192.168.1.105:5000/`).
 - **Android AP Hotspot**: Dedicated offline pairing address for when your Android device hosts its own Wi-Fi hotspot (`http://192.168.43.1:5000/`).
 - **USB Reverse Tethering / RNDIS**: Direct cable connection address (`http://192.168.42.129:5000/`).
-- **Network Discovery Endpoint**: Exposes `/v1/local_info` returning JSON metadata of all detected interfaces and connection modes.
+- **Network Discovery Endpoint**: Exposes `/v1/local_info` returning JSON metadata of all detected interfaces, Tailscale mesh state, and active tunnel URLs.
 
 ### Standalone Zero-Dependency Web Chat UI
-Accessible directly via any browser connected to your local network at `http://<ip>:5000/`:
+Accessible directly via any browser connected to your local network, hotspot, Tailscale mesh, or public tunnel at `http://<ip>:5000/`:
 - **100% Air-Gapped**: Zero external CDN calls, remote scripts, or Google Fonts. Functions completely offline without internet access.
 - **Embedded Web Client**: Fully responsive dark-mode UI with markdown formatting, syntax highlighting, and dynamic copy-to-clipboard buttons.
 - **Real-Time SSE Streaming**: Token-by-token live generation with elapsed time and speed metrics.
 - **Deep Thinking Toggle**: Automatically parses and collapses `<think>...</think>` internal cognitive reasoning traces into interactive collapsible process boxes.
-- **Quick Connection Modals**: Direct copyable snippets for curl, Python SDK, Obsidian, Chatbox, and NextChat.
+- **Quick Connection Modals**: Direct copyable snippets for curl, Python SDK, Obsidian, Chatbox, NextChat, and Tailscale Mesh links.
 
 ---
 

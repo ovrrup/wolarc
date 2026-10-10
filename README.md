@@ -31,10 +31,13 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 - **OpenAI-Compatible Gateway**: Exposes `/v1/chat/completions` and `/v1/models` (port 5000), supporting real-time SSE streaming.
 - **Standalone Zero-Dependency Web Chat UI**: Built-in browser interface served directly from the local gateway (`http://<ip>:5000/`) with zero external CDNs or remote font dependencies. Includes markdown rendering, copy buttons, live SSE token streaming, thinking on/off toggle button, and collapsible cognitive reasoning process boxes (`<think>`).
 - **Air-Gapped Offline Gateway & Hotspot Pairing (`wola.local` / `wola.hotspot`)**: Connect completely offline over local Wi-Fi, Android portable hotspot (`192.168.43.1`), or USB tethering (`192.168.42.129`) with auto-generated terminal QR codes and `/v1/local_info` discovery.
+- **Tailscale WireGuard Mesh VPN (`wola.tailscale` / `wola.ts`)**: Direct peer-to-peer encrypted mesh connectivity from any device worldwide without public relays or port forwarding. Automatically detects the Android OS Tailscale VPN app or Linux CLI, supports MagicDNS hostnames, Serve & Funnel, and injects universal CORS headers.
+- **Autonomous Tunnel Watchdog Daemon (`bin/wola-tunnel-daemon`)**: Self-healing background supervisor monitoring tunnel health every 20s. Automatically cascades across Cloudflare Quick Tunnels (`trycloudflare.com`), `localhost.run`, `serveo.net`, and `pinggy.io` upon connection degradation.
+- **Multi-Route Reachability & Latency Benchmark (`wola.link test`)**: Simultaneously tests and benchmarks latency across Localhost, Wi-Fi LAN, Mobile Hotspot, Tailscale mesh, and Public tunnels with outbound ISP reachability sweeps.
 - **Dual TUI / CLI Operational Toggle (`wola tui [on|off]`)**: Seamlessly switch between the full-screen Bubble Tea TUI and the classic script-based terminal suite.
 - **Real-Time Thinking Viewer & Switch (`wola.th` / `wola think`)**: Inspect model reasoning (`<think>` tokens) and RAG retrieval scores live as inference streams, or turn off thinking for instant response velocity.
 - **In-Terminal Model Store & Importer (`wola.gt` / `wola.gh`)**: Search and download tested GGUF models directly from Hugging Face or import your own local `.gguf` files with automatic Move/Copy management and role assignment.
-- **Zero-Config Remote Tunneling**: Automatically establishes an encrypted tunnel via `localhost.run`, `serveo.net`, or `pinggy.io` for remote access on phone or PC.
+- **Zero-Config Remote Tunneling**: Automatically establishes an encrypted tunnel via Cloudflare, `localhost.run`, `serveo.net`, or `pinggy.io` for remote access on phone or PC.
 - **Smart Setup & Conflict Engine**: `install.sh` detects existing processes/configurations and offers Clean Slate (`--clean`), Adjust & Merge BETA (`--adjust`), or Safe Upgrade (`--upgrade`).
 - **Process & Power Management**: Integrated Termux wake-lock support and safe process lifecycle controls (`wola.r`, `wola.k`, `wola.rs`).
 - **CI/CD Automated Cross-Compilation**: GitHub Actions workflow builds multi-architecture binaries (`linux/arm64`, `linux/amd64`, `darwin/arm64`, `windows/amd64`) on every push.
@@ -48,7 +51,13 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
                       │             Remote Client Apps               │
                       │  (Chatbox, Obsidian, NextChat, OpenWebUI)    │
                       └──────────────────────┬───────────────────────┘
-                                             │ HTTPS (localhost.run)
+                                             │
+                       ┌─────────────────────┼─────────────────────┐
+                       │                     │                     │
+                Tailscale Mesh VPN     Cloudflare / SSH      Local Network
+                 (Encrypted P2P)       (Watchdog Tunnel)    (Hotspot / LAN)
+                       │                     │                     │
+                       └─────────────────────┼─────────────────────┘
                                              ▼
                                ┌───────────────────────────┐
                                │   Agent API Gateway       │
@@ -156,6 +165,7 @@ Wolarc enforces a strict 1-to-1 command pairing convention: every feature has **
 | `wola.think` | `wola.th` | `wola think` / `wola th` | Real-time **thinking stream viewer** or toggle (`on`/`off`/`status`) |
 | `wola.link` | `wola.url` | `wola link` / `wola url` | **Remote tunnel URL**, latency test, ASCII QR code & clipboard |
 | `wola.hotspot` | `wola.local` | `wola hotspot` / `wola local`| **Offline gateway & Web Chat UI**, LAN/Hotspot links, QR pairing |
+| `wola.tailscale` | `wola.ts` | `wola tailscale` / `wola ts` | **Tailscale WireGuard Mesh VPN**, peer access, MagicDNS, Serve & Funnel |
 | `wola.config` | `wola.t` | `wola config` / `wola t` | View and edit configuration parameters (`wola.t KEY VALUE`) |
 | `wola.update` | `wola.u` | `wola update` / `wola u` | **Check for updates** & upgrade to latest release |
 | `wola.uninstall` | `wola.purge` | `wola uninstall` / `wola purge`| Multi-level system cleanup & self-destruct uninstaller |

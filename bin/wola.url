@@ -1,4 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/bash
+# =================================================================
+# Wolarc Connectivity & Gateway Engine
+# Handles: Public Tunnels, Tailscale Mesh VPN, Local Hotspot, Wi-Fi LAN
+# =================================================================
 
 # ANSI Colors
 C_RESET="\033[0m"
@@ -9,17 +13,25 @@ C_GREEN="\033[1;32m"
 C_YELLOW="\033[1;33m"
 C_CYAN="\033[1;36m"
 C_MAGENTA="\033[1;35m"
+C_BLUE="\033[1;34m"
 
 URL_FILE="$HOME/.wola_url"
 PROVIDER_FILE="$HOME/.wola_provider"
+ENDPOINT_FILE="$HOME/.wola_endpoint"
+PID_FILE="$HOME/.wola_tunnel_daemon.pid"
 CONFIG="$HOME/.wolarc"
 [ -f "$CONFIG" ] && source "$CONFIG"
 
+PORT="${AGENT_PORT:-5000}"
+
+# -------------------------------------------------------------
+# Helpers
+# -------------------------------------------------------------
 get_url() {
     if [ -f "$URL_FILE" ]; then
         cat "$URL_FILE" | tr -d ' \n\r'
     elif [ -f "$HOME/tunnel.log" ]; then
-        grep -oE "https://[a-zA-Z0-9.-]+(?:\.lhr\.life|\.serveo\.net|\.pinggy\.link|\.free\.pinggy\.link)" "$HOME/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1
+        grep -oE "https://[a-zA-Z0-9.-]+(?:\.trycloudflare\.com|\.lhr\.life|\.serveo\.net|\.pinggy\.link|\.free\.pinggy\.link)" "$HOME/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1
     fi
 }
 
@@ -52,15 +64,17 @@ ping_test() {
     if [ -z "$url" ]; then
         return
     fi
-    echo -n -e "  • Tunnel Latency : "
+    echo -n -e "  • Latency Ping   : "
     local start_ms=$(python3 -c "import time; print(int(time.time()*1000))")
     local http_code
     http_code=$(curl -s -o /dev/null -w "%{http_code}" -m 6 "${url}/health" 2>/dev/null)
     local end_ms=$(python3 -c "import time; print(int(time.time()*1000))")
     local diff=$((end_ms - start_ms))
 
-    if [ "$http_code" = "200" ]; then
-        echo -e "${C_GREEN}200 OK (${diff}ms)${C_RESET}"
+    if [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
+        echo -e "${C_GREEN}${http_code} OK (${diff}ms)${C_RESET}"
+    elif [ "$http_code" = "000" ]; then
+        echo -e "${C_RED}TIMEOUT / UNREACHABLE${C_RESET}"
     else
         echo -e "${C_YELLOW}HTTP ${http_code} (${diff}ms)${C_RESET}"
     fi
@@ -95,18 +109,229 @@ for line in buf.getvalue().splitlines():
         if [ -n "$qr_res" ] && [[ "$qr_res" =~ "█" ]]; then
             echo "$qr_res" | head -n 22 | sed 's/^/  /'
         else
-            echo -e "  ${C_DIM}(Offline mode: navigate directly to ${url})${C_RESET}"
+            echo -e "  ${C_DIM}(Navigate directly in browser to: ${url})${C_RESET}"
         fi
     fi
 }
 
-get_local_net_json() {
-    local port="${AGENT_PORT:-5000}"
+# -------------------------------------------------------------
+# Tailscale Inspection Module
+# -------------------------------------------------------------
+get_tailscale_json() {
     python3 -c "
-import subprocess, re, socket, json
+import subprocess, re, json, shutil
+
+def is_ts(ip):
+    try:
+        parts = [int(p) for p in ip.split('.')]
+        return len(parts) == 4 and parts[0] == 100 and (64 <= parts[1] <= 127)
+    except Exception:
+        return False
+
+info = {'installed': False, 'running': False, 'ip': None, 'magicdns': None, 'mode': 'none', 'self_name': None}
+ts_bin = shutil.which('tailscale')
+if ts_bin:
+    info['installed'] = True
+    try:
+        out = subprocess.check_output([ts_bin, 'status', '--json'], stderr=subprocess.DEVNULL, timeout=2).decode()
+        data = json.loads(out)
+        self_node = data.get('Self', {})
+        for ip in self_node.get('TailscaleIPs', []):
+            if ':' not in ip and is_ts(ip):
+                info['ip'] = ip
+                break
+        dns = self_node.get('DNSName', '').rstrip('.')
+        if dns:
+            info['magicdns'] = dns
+        info['self_name'] = self_node.get('HostName', '')
+        info['running'] = bool(self_node.get('Online', False))
+        info['mode'] = 'cli'
+        if info['ip']:
+            print(json.dumps(info))
+            exit(0)
+    except Exception:
+        pass
+
+for cmd in [['ip', '-4', 'addr'], ['ifconfig']]:
+    try:
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2).decode()
+        cur_iface = ''
+        for line in out.splitlines():
+            if line and not line.startswith(' '):
+                cur_iface = line.split(':')[0].split()[0].strip()
+            m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
+            if m:
+                ip = m.group(1)
+                if is_ts(ip):
+                    info['running'] = True
+                    info['ip'] = ip
+                    info['mode'] = 'android-app' if 'tun' in cur_iface else 'interface'
+                    print(json.dumps(info))
+                    exit(0)
+    except Exception:
+        pass
+
+print(json.dumps(info))
+" 2>/dev/null
+}
+
+show_tailscale_gateway() {
+    echo -e "${C_BLUE}╭────────────────────────────────────────────────────────────────╮${C_RESET}"
+    echo -e "${C_BLUE}│${C_RESET}             ${C_BOLD}TAILSCALE MESH VPN & PEER CONNECTIVITY${C_RESET}             ${C_BLUE}│${C_RESET}"
+    echo -e "${C_BLUE}╰────────────────────────────────────────────────────────────────╯${C_RESET}"
+
+    local ts_json
+    ts_json=$(get_tailscale_json)
+
+    local ts_running
+    ts_running=$(python3 -c "import json; data=json.loads('''$ts_json'''); print('true' if data.get('running') else 'false')")
+    local ts_ip
+    ts_ip=$(python3 -c "import json; data=json.loads('''$ts_json'''); print(data.get('ip') or '')")
+    local ts_dns
+    ts_dns=$(python3 -c "import json; data=json.loads('''$ts_json'''); print(data.get('magicdns') or '')")
+    local ts_installed
+    ts_installed=$(python3 -c "import json; data=json.loads('''$ts_json'''); print('true' if data.get('installed') else 'false')")
+    local ts_mode
+    ts_mode=$(python3 -c "import json; data=json.loads('''$ts_json'''); print(data.get('mode') or 'none')")
+
+    if [ "$ts_running" = "true" ] && [ -n "$ts_ip" ]; then
+        local ts_url="http://${ts_ip}:${PORT}"
+        echo -e "  • Tailscale Status: ${C_GREEN}${C_BOLD}CONNECTED${C_RESET} (${C_DIM}mode: ${ts_mode}${C_RESET})"
+        echo -e "  • Tailscale IPv4  : ${C_GREEN}${ts_ip}${C_RESET}"
+        if [ -n "$ts_dns" ]; then
+            echo -e "  • MagicDNS Domain : ${C_CYAN}${ts_dns}${C_RESET}"
+            echo -e "  • MagicDNS URL    : ${C_CYAN}http://${ts_dns}:${PORT}/${C_RESET}"
+        fi
+        echo -e "  • Web Chat UI Link: ${C_GREEN}${ts_url}/${C_RESET}"
+        echo -e "  • OpenAI Endpoint : ${C_CYAN}${ts_url}/v1${C_RESET}"
+        echo -e "  • API Key (Header): ${C_YELLOW}sk-test${C_RESET}"
+        ping_test "$ts_url"
+        copy_clipboard "$ts_url"
+
+        echo -e "${C_BLUE}──────────────────────────────────────────────────────────────────${C_RESET}"
+        show_qr "$ts_url"
+        echo -e "${C_BLUE}──────────────────────────────────────────────────────────────────${C_RESET}"
+        echo -e "  ${C_BOLD}How to Connect from Any Other Device on your Tailnet:${C_RESET}"
+        echo -e "    1. Connect your laptop, tablet, or secondary phone to your Tailscale account."
+        echo -e "    2. Open your browser and navigate directly to: ${C_GREEN}${ts_url}/${C_RESET}"
+        if [ -n "$ts_dns" ]; then
+            echo -e "       or using MagicDNS: ${C_CYAN}http://${ts_dns}:${PORT}/${C_RESET}"
+        fi
+        echo -e "    3. Zero port forwarding, zero public exposure, encrypted peer-to-peer!"
+
+        if [ "$ts_installed" = "true" ]; then
+            echo -e "\n  ${C_BOLD}Tailscale CLI Features Available:${C_RESET}"
+            echo -e "    • Run ${C_CYAN}wola.link tailscale serve on${C_RESET}  -> Expose over HTTPS within Tailnet"
+            echo -e "    • Run ${C_CYAN}wola.link tailscale funnel on${C_RESET} -> Expose publicly over HTTPS via Funnel"
+        fi
+    else
+        echo -e "  • Tailscale Status: ${C_RED}NOT ACTIVE${C_RESET}"
+        echo -e ""
+        echo -e "  ${C_BOLD}Why use Tailscale with Wola?${C_RESET}"
+        echo -e "  Tailscale connects your phone and PC over an encrypted WireGuard mesh network."
+        echo -e "  You can access Wola from anywhere in the world without SSH tunnels or public relays."
+        echo -e ""
+        echo -e "  ${C_BOLD}How to activate Tailscale:${C_RESET}"
+        echo -e "  ${C_CYAN}[Android]${C_RESET}"
+        echo -e "    1. Install ${C_BOLD}Tailscale${C_RESET} from Google Play Store or F-Droid."
+        echo -e "    2. Log in and toggle Tailscale ON."
+        echo -e "    3. Re-run ${C_BOLD}wola.link tailscale${C_RESET} to view your connection link."
+        echo -e ""
+        echo -e "  ${C_CYAN}[Linux]${C_RESET}"
+        echo -e "    1. Run: ${C_YELLOW}curl -fsSL https://tailscale.com/install.sh | sh${C_RESET}"
+        echo -e "    2. Run: ${C_YELLOW}tailscale up${C_RESET}"
+        echo -e "    3. Re-run ${C_BOLD}wola.link tailscale${C_RESET}."
+    fi
+    echo -e "${C_BLUE}=================================================================${C_RESET}"
+}
+
+manage_tailscale_cli() {
+    local action="$1"
+    local param="$2"
+
+    if ! command -v tailscale >/dev/null 2>&1; then
+        echo -e "${C_RED}[-] 'tailscale' CLI binary not found in PATH.${C_RESET}"
+        echo "    On Android, Tailscale runs as an app. Use 'wola.link tailscale' to view connection."
+        return 1
+    fi
+
+    case "$action" in
+        "serve")
+            case "$param" in
+                "on"|"enable")
+                    echo -e "${C_CYAN}[*] Enabling Tailscale Serve for port ${PORT}...${C_RESET}"
+                    tailscale serve --bg "http://127.0.0.1:${PORT}"
+                    echo -e "${C_GREEN}✓ Tailscale Serve enabled. Accessible via your Tailnet HTTPS MagicDNS!${C_RESET}"
+                    ;;
+                "off"|"disable")
+                    echo -e "${C_YELLOW}[*] Disabling Tailscale Serve...${C_RESET}"
+                    tailscale serve --reset 2>/dev/null || true
+                    echo -e "${C_GREEN}✓ Tailscale Serve reset.${C_RESET}"
+                    ;;
+                *)
+                    tailscale serve status
+                    ;;
+            esac
+            ;;
+        "funnel")
+            case "$param" in
+                "on"|"enable")
+                    echo -e "${C_CYAN}[*] Enabling Tailscale Funnel for port ${PORT}...${C_RESET}"
+                    tailscale funnel --bg "${PORT}"
+                    echo -e "${C_GREEN}✓ Tailscale Funnel enabled! Publicly accessible over HTTPS.${C_RESET}"
+                    ;;
+                "off"|"disable")
+                    echo -e "${C_YELLOW}[*] Disabling Tailscale Funnel...${C_RESET}"
+                    tailscale funnel --reset 2>/dev/null || true
+                    echo -e "${C_GREEN}✓ Tailscale Funnel reset.${C_RESET}"
+                    ;;
+                *)
+                    tailscale funnel status
+                    ;;
+            esac
+            ;;
+        "status")
+            tailscale status
+            ;;
+        *)
+            show_tailscale_gateway
+            ;;
+    esac
+}
+
+# -------------------------------------------------------------
+# Local Network & Hotspot Module
+# -------------------------------------------------------------
+get_local_net_json() {
+    python3 -c "
+import subprocess, re, socket, json, shutil
+
+def is_ts(ip):
+    try:
+        parts = [int(p) for p in ip.split('.')]
+        return len(parts) == 4 and parts[0] == 100 and (64 <= parts[1] <= 127)
+    except Exception:
+        return False
+
 interfaces = []
 seen = set()
-port = '${port}'
+port = '${PORT}'
+
+# Check Tailscale first
+ts_bin = shutil.which('tailscale')
+if ts_bin:
+    try:
+        out = subprocess.check_output([ts_bin, 'status', '--json'], stderr=subprocess.DEVNULL, timeout=2).decode()
+        data = json.loads(out)
+        self_node = data.get('Self', {})
+        for ip in self_node.get('TailscaleIPs', []):
+            if ':' not in ip and is_ts(ip):
+                seen.add(ip)
+                interfaces.append({'iface': 'tailscale', 'ip': ip, 'label': 'Tailscale Mesh VPN', 'url': f'http://{ip}:{port}'})
+                break
+    except Exception:
+        pass
+
 for cmd in [['ifconfig'], ['ip', '-4', 'addr']]:
     try:
         out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
@@ -119,11 +344,14 @@ for cmd in [['ifconfig'], ['ip', '-4', 'addr']]:
                 ip = m.group(1)
                 if ip != '127.0.0.1' and not ip.startswith('169.254.') and ip not in seen:
                     seen.add(ip)
-                    label = 'Local Wi-Fi / LAN'
-                    if 'ap' in cur_iface or 'swlan' in cur_iface or ip.startswith('192.168.43.'):
+                    if is_ts(ip):
+                        label = 'Tailscale Mesh VPN'
+                    elif 'ap' in cur_iface or 'swlan' in cur_iface or ip.startswith('192.168.43.'):
                         label = 'Android Mobile Hotspot'
                     elif 'rndis' in cur_iface or 'usb' in cur_iface or ip.startswith('192.168.42.'):
                         label = 'USB Tethering'
+                    else:
+                        label = 'Local Wi-Fi / LAN'
                     interfaces.append({'iface': cur_iface or 'net', 'ip': ip, 'label': label, 'url': f'http://{ip}:{port}'})
         if interfaces:
             break
@@ -138,7 +366,8 @@ for probe in ['8.8.8.8', '192.168.43.254', '192.168.1.1']:
         s.close()
         if ip and ip != '127.0.0.1' and ip not in seen:
             seen.add(ip)
-            interfaces.append({'iface': 'sock', 'ip': ip, 'label': 'Local Wi-Fi / LAN', 'url': f'http://{ip}:{port}'})
+            label = 'Tailscale Mesh VPN' if is_ts(ip) else 'Local Wi-Fi / LAN'
+            interfaces.append({'iface': 'sock', 'ip': ip, 'label': label, 'url': f'http://{ip}:{port}'})
     except Exception:
         pass
 
@@ -150,7 +379,6 @@ print(json.dumps(interfaces))
 }
 
 show_local_gateway() {
-    local port="${AGENT_PORT:-5000}"
     echo -e "${C_CYAN}╭────────────────────────────────────────────────────────────────╮${C_RESET}"
     echo -e "${C_CYAN}│${C_RESET}             ${C_BOLD}WOLARC AIR-GAPPED LOCAL OFFLINE GATEWAY${C_RESET}            ${C_CYAN}│${C_RESET}"
     echo -e "${C_CYAN}╰────────────────────────────────────────────────────────────────╯${C_RESET}"
@@ -158,7 +386,7 @@ show_local_gateway() {
     local net_json
     net_json=$(get_local_net_json)
 
-    local primary_local_url="http://192.168.43.1:${port}"
+    local primary_local_url="http://192.168.43.1:${PORT}"
     if [ -n "$net_json" ]; then
         python3 -c "
 import json
@@ -166,17 +394,17 @@ data = json.loads('''$net_json''')
 for item in data:
     lbl = item.get('label', 'Local')
     url = item.get('url', '')
-    print(f\"  • {lbl:<32} : \033[1;32m{url}\033[0m\")
+    color = '\033[1;34m' if 'Tailscale' in lbl else '\033[1;32m'
+    print(f\"  • {lbl:<32} : {color}{url}\033[0m\")
 "
-        primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${port}')")
+        primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
     else
-        echo -e "  • Android Mobile Hotspot (Gateway): ${C_GREEN}http://192.168.43.1:${port}${C_RESET}"
+        echo -e "  • Android Mobile Hotspot (Gateway): ${C_GREEN}http://192.168.43.1:${PORT}${C_RESET}"
     fi
 
     echo -e "  • Web Chat & Pairing UI           : ${C_GREEN}${primary_local_url}/${C_RESET}"
     echo -e "  • OpenAI Compatible Base URL      : ${C_CYAN}${primary_local_url}/v1${C_RESET}"
     echo -e "  • API Key (Header)                : ${C_YELLOW}sk-test${C_RESET}"
-    echo -e "  • Model ID                        : ${C_DIM}local-agent${C_RESET}"
     copy_clipboard "$primary_local_url"
 
     echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
@@ -185,64 +413,186 @@ for item in data:
     echo -e "  ${C_BOLD}HOW TO CONNECT WITHOUT INTERNET OR WI-FI ROUTER:${C_RESET}"
     echo -e "    1. On this Android device: Turn ${C_GREEN}${C_BOLD}ON${C_RESET} Personal / Mobile Hotspot."
     echo -e "    2. On your other device (laptop, tablet, phone): Connect to Hotspot Wi-Fi."
-    echo -e "    3. In any browser open: ${C_GREEN}${C_BOLD}http://192.168.43.1:${port}${C_RESET} (or scan QR code above)."
+    echo -e "    3. In any browser open: ${C_GREEN}${C_BOLD}http://192.168.43.1:${PORT}${C_RESET} (or scan QR code above)."
     echo -e "    4. Enjoy 100% offline chat and RAG knowledge search!"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
 }
 
-switch_provider() {
-    local target="$1"
-    local port="${AGENT_PORT:-5000}"
-    echo -e "${C_CYAN}[*] Re-negotiating tunnel connection...${C_RESET}"
-    pkill -9 -f "ssh.*localhost.run" 2>/dev/null
-    pkill -9 -f "ssh.*serveo.net" 2>/dev/null
-    pkill -9 -f "ssh.*pinggy" 2>/dev/null
-    rm -f "$HOME/tunnel.log" "$URL_FILE"
+# -------------------------------------------------------------
+# Connectivity Benchmark & Test Suite
+# -------------------------------------------------------------
+run_connectivity_test() {
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+    echo -e "               ${C_BOLD}WOLARC CONNECTIVITY BENCHMARK & AUDIT${C_RESET}"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
 
-    case "$target" in
-        "serveo")
-            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes -o IPQoS=lowdelay -o Compression=no -o ExitOnForwardFailure=yes -R 80:localhost:${port} serveo.net > "$HOME/tunnel.log" 2>&1 &
-            echo "serveo" > "$PROVIDER_FILE"
-            ;;
-        "pinggy")
-            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes -o IPQoS=lowdelay -o Compression=no -o ExitOnForwardFailure=yes -R 0:localhost:${port} a.pinggy.io > "$HOME/tunnel.log" 2>&1 &
-            echo "pinggy" > "$PROVIDER_FILE"
-            ;;
-        *)
-            nohup ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes -o IPQoS=lowdelay -o Compression=no -o ExitOnForwardFailure=yes -R 80:localhost:${port} nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
-            echo "localhost.run" > "$PROVIDER_FILE"
-            ;;
-    esac
+    test_target() {
+        local name="$1"
+        local url="$2"
+        printf "  • %-32s : " "$name"
+        if [ -z "$url" ]; then
+            echo -e "${C_DIM}N/A (Not configured)${C_RESET}"
+            return
+        fi
 
-    echo -n "[*] Connecting "
-    local new_url=""
-    for i in {1..15}; do
-        new_url=$(grep -oE "https://[a-zA-Z0-9.-]+(?:\.lhr\.life|\.serveo\.net|\.pinggy\.link|\.free\.pinggy\.link)" "$HOME/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1)
-        [ -n "$new_url" ] && break
-        echo -n "."
-        sleep 1
-    done
-    echo ""
+        local start_ms=$(python3 -c "import time; print(int(time.time()*1000))")
+        local code
+        code=$(curl -s -o /dev/null -w "%{http_code}" -m 5 "${url}/health" 2>/dev/null)
+        local end_ms=$(python3 -c "import time; print(int(time.time()*1000))")
+        local diff=$((end_ms - start_ms))
 
-    if [ -n "$new_url" ]; then
-        echo "$new_url" > "$URL_FILE"
-        echo "${new_url}/v1" > "$HOME/.wola_endpoint"
-        echo -e "${C_GREEN}[+] Tunnel established: ${new_url}${C_RESET}"
-        copy_clipboard "$new_url"
-    else
-        echo -e "${C_RED}[-] Failed to establish tunnel with ${target}.${C_RESET}"
-        echo "    Inspect details with: cat ~/tunnel.log"
+        if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+            echo -e "${C_GREEN}${code} OK (${diff}ms)${C_RESET}"
+        elif [ "$code" = "000" ]; then
+            echo -e "${C_RED}FAILED (Unreachable / Timeout)${C_RESET}"
+        else
+            echo -e "${C_YELLOW}HTTP ${code} (${diff}ms)${C_RESET}"
+        fi
+    }
+
+    test_target "Localhost Loopback" "http://127.0.0.1:${PORT}"
+
+    # Test LAN
+    local net_json
+    net_json=$(get_local_net_json)
+    if [ -n "$net_json" ]; then
+        python3 -c "
+import json
+data = json.loads('''$net_json''')
+for item in data:
+    lbl = item.get('label', '')
+    url = item.get('url', '')
+    print(f'{lbl}|{url}')
+" | while IFS='|' read -r lbl url; do
+            [ -n "$url" ] && test_target "$lbl" "$url"
+        done
     fi
+
+    # Test Active Remote Tunnel
+    local cur_url
+    cur_url=$(get_url)
+    local cur_prov
+    cur_prov=$(get_provider)
+    if [ -n "$cur_url" ]; then
+        test_target "Public Tunnel (${cur_prov})" "$cur_url"
+    else
+        printf "  • %-32s : ${C_YELLOW}OFFLINE${C_RESET}\n" "Public Tunnel"
+    fi
+
+    echo -e "${C_CYAN}-----------------------------------------------------------------${C_RESET}"
+    echo -e "  ${C_BOLD}Outbound Provider Reachability Probe:${C_RESET}"
+
+    probe_host() {
+        local pname="$1"
+        local host="$2"
+        local port="$3"
+        printf "    • %-28s : " "$pname ($host)"
+        if nc -z -w 3 "$host" "$port" 2>/dev/null || (exec 3<>/dev/tcp/"$host"/"$port") 2>/dev/null; then
+            echo -e "${C_GREEN}REACHABLE${C_RESET}"
+        else
+            echo -e "${C_YELLOW}BLOCKED / TIMEOUT${C_RESET}"
+        fi
+    }
+
+    probe_host "localhost.run" "localhost.run" "22"
+    probe_host "serveo.net" "serveo.net" "22"
+    probe_host "pinggy.io" "a.pinggy.io" "22"
+    if command -v cloudflared >/dev/null 2>&1; then
+        printf "    • %-28s : ${C_GREEN}INSTALLED (Ready)${C_RESET}\n" "Cloudflare Tunnel"
+    fi
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
 }
 
-# Main flow
+# -------------------------------------------------------------
+# Status Overview
+# -------------------------------------------------------------
+show_status_overview() {
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+    echo -e "                 ${C_BOLD}WOLARC CONNECTIVITY STATUS${C_RESET}"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+
+    local url
+    url=$(get_url)
+    local prov
+    prov=$(get_provider)
+
+    echo -e "  ${C_BOLD}[Remote Gateways]${C_RESET}"
+    if [ -n "$url" ]; then
+        echo -e "    • Public Tunnel URL : ${C_GREEN}${url}${C_RESET} (${C_DIM}provider: ${prov}${C_RESET})"
+        ping_test "$url"
+    else
+        echo -e "    • Public Tunnel     : ${C_RED}OFFLINE${C_RESET}"
+    fi
+
+    local w_pid=""
+    [ -f "$PID_FILE" ] && w_pid=$(cat "$PID_FILE" 2>/dev/null)
+    if [ -n "$w_pid" ] && kill -0 "$w_pid" 2>/dev/null; then
+        echo -e "    • Tunnel Watchdog   : ${C_GREEN}ACTIVE (PID $w_pid, Auto-Healing ON)${C_RESET}"
+    else
+        echo -e "    • Tunnel Watchdog   : ${C_YELLOW}IDLE / NOT RUNNING${C_RESET}"
+    fi
+
+    echo -e "\n  ${C_BOLD}[Mesh & Private Networks]${C_RESET}"
+    local ts_json
+    ts_json=$(get_tailscale_json)
+    local ts_running
+    ts_running=$(python3 -c "import json; data=json.loads('''$ts_json'''); print('true' if data.get('running') else 'false')")
+    local ts_ip
+    ts_ip=$(python3 -c "import json; data=json.loads('''$ts_json'''); print(data.get('ip') or '')")
+    local ts_dns
+    ts_dns=$(python3 -c "import json; data=json.loads('''$ts_json'''); print(data.get('magicdns') or '')")
+
+    if [ "$ts_running" = "true" ] && [ -n "$ts_ip" ]; then
+        echo -e "    • Tailscale Mesh    : ${C_GREEN}CONNECTED${C_RESET} (${C_CYAN}${ts_ip}:${PORT}${C_RESET})"
+        [ -n "$ts_dns" ] && echo -e "    • MagicDNS Hostname : ${C_CYAN}${ts_dns}${C_RESET}"
+    else
+        echo -e "    • Tailscale Mesh    : ${C_DIM}Disconnected (run 'wola.link tailscale' to connect)${C_RESET}"
+    fi
+
+    echo -e "\n  ${C_BOLD}[Local Interfaces]${C_RESET}"
+    local net_json
+    net_json=$(get_local_net_json)
+    if [ -n "$net_json" ]; then
+        python3 -c "
+import json
+data = json.loads('''$net_json''')
+for item in data:
+    lbl = item.get('label', '')
+    url = item.get('url', '')
+    if 'Tailscale' not in lbl:
+        print(f\"    • {lbl:<22} : {url}\")
+"
+    fi
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+}
+
+# -------------------------------------------------------------
+# Dispatcher
+# -------------------------------------------------------------
+SELF_NAME=$(basename "$0")
 URL=$(get_url)
 PROVIDER=$(get_provider)
-PORT="${AGENT_PORT:-5000}"
 
-SELF_NAME=$(basename "$0")
+# If invoked as wola.local or wola.hotspot
 if [ "$SELF_NAME" = "wola.local" ] || [ "$SELF_NAME" = "wola.hotspot" ]; then
     case "$1" in
+        "tailscale"|"ts")
+            shift
+            if [ -n "$1" ]; then
+                manage_tailscale_cli "$@"
+            else
+                show_tailscale_gateway
+            fi
+            exit 0
+            ;;
+        "test")
+            run_connectivity_test
+            exit 0
+            ;;
+        "status")
+            show_status_overview
+            exit 0
+            ;;
         "copy")
             net_json=$(get_local_net_json)
             primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
@@ -267,6 +617,17 @@ if [ "$SELF_NAME" = "wola.local" ] || [ "$SELF_NAME" = "wola.hotspot" ]; then
             show_qr "$primary_local_url"
             exit 0
             ;;
+        "-h"|"--help"|"help")
+            echo -e "${C_BOLD}Wolarc Local Offline Gateway (wola.hotspot / wola.local)${C_RESET}"
+            echo "Usage:"
+            echo "  wola.hotspot (or wola.local)     Show offline local links, Hotspot IP & QR code"
+            echo "  wola.hotspot tailscale           Display Tailscale mesh IP, MagicDNS & setup"
+            echo "  wola.hotspot test                Benchmark all local and remote connectivity routes"
+            echo "  wola.hotspot status              Audit all connection interfaces"
+            echo "  wola.hotspot copy                Copy primary local URL to clipboard"
+            echo "  wola.hotspot qr                  Display large terminal QR code"
+            exit 0
+            ;;
         *)
             show_local_gateway
             exit 0
@@ -274,22 +635,24 @@ if [ "$SELF_NAME" = "wola.local" ] || [ "$SELF_NAME" = "wola.hotspot" ]; then
     esac
 fi
 
+# Invoked as wola.url or wola.link
 case "$1" in
+    "tailscale"|"ts")
+        shift
+        if [ -n "$1" ]; then
+            manage_tailscale_cli "$@"
+        else
+            show_tailscale_gateway
+        fi
+        ;;
+    "test"|"bench")
+        run_connectivity_test
+        ;;
+    "status"|"check")
+        show_status_overview
+        ;;
     "local"|"offline"|"hotspot"|"lan")
         show_local_gateway
-        ;;
-    "local-json"|"json")
-        get_local_net_json
-        ;;
-    "local-raw")
-        net_json=$(get_local_net_json)
-        primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
-        echo "$primary_local_url"
-        ;;
-    "local-api"|"local-endpoint")
-        net_json=$(get_local_net_json)
-        primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
-        echo "${primary_local_url}/v1"
         ;;
     "raw")
         [ -n "$URL" ] && echo "$URL" || exit 1
@@ -307,10 +670,22 @@ case "$1" in
         fi
         ;;
     "switch"|"provider")
-        switch_provider "$2"
+        target="$2"
+        [ -z "$target" ] && target="auto"
+        if command -v wola-tunnel-daemon >/dev/null 2>&1; then
+            wola-tunnel-daemon reconnect "$target"
+        else
+            m_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+            "$m_dir/wola-tunnel-daemon" reconnect "$target"
+        fi
         ;;
     "reconnect")
-        switch_provider "$PROVIDER"
+        if command -v wola-tunnel-daemon >/dev/null 2>&1; then
+            wola-tunnel-daemon reconnect
+        else
+            m_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+            "$m_dir/wola-tunnel-daemon" reconnect
+        fi
         ;;
     "qr")
         if [ -n "$2" ]; then
@@ -324,14 +699,17 @@ case "$1" in
         fi
         ;;
     "-h"|"--help"|"help")
-        echo -e "${C_BOLD}Wolarc Gateway URL & Local Network Manager (wola.url / wola.link)${C_RESET}"
+        echo -e "${C_BOLD}Wolarc Remote Gateway & Connectivity Suite (wola.link / wola.url)${C_RESET}"
         echo "Usage:"
-        echo "  wola.url (or wola.link)         Show public tunnel URL, latency & QR code"
-        echo "  wola.url local (or wola.hotspot) Show offline local WiFi & hotspot connection"
-        echo "  wola.url copy                   Copy active URL to clipboard"
-        echo "  wola.url qr                     Display enlarged terminal QR code"
-        echo "  wola.url switch <provider>      Switch tunnel to serveo or pinggy"
-        echo "  wola.url reconnect              Force reconnect active tunnel"
+        echo "  wola.link (or wola.url)           Display active public URL, latency & QR code"
+        echo "  wola.link tailscale               Inspect Tailscale mesh VPN, MagicDNS & peer links"
+        echo "  wola.link local (or wola.hotspot) Display offline Hotspot & Wi-Fi LAN interfaces"
+        echo "  wola.link test                    Benchmark reachability across all network routes"
+        echo "  wola.link status                  Audit connection health & watchdog status"
+        echo "  wola.link switch <provider>       Switch tunnel (cloudflare, localhost.run, serveo, pinggy)"
+        echo "  wola.link reconnect               Force reconnect active tunnel across fallback cascade"
+        echo "  wola.link copy                    Copy active endpoint to clipboard"
+        echo "  wola.link qr                      Display enlarged ASCII QR code"
         exit 0
         ;;
     *)
@@ -340,7 +718,7 @@ case "$1" in
         echo -e "${C_CYAN}╰────────────────────────────────────────────────────────────────╯${C_RESET}"
         if [ -z "$URL" ]; then
             echo -e "  ${C_RED}○ Remote Tunnel : OFFLINE / DISCONNECTED${C_RESET}"
-            echo -e "  ${C_DIM}(Start Wola with 'wola.r' when internet is available for remote access)${C_RESET}"
+            echo -e "  ${C_DIM}(Start Wola with 'wola.start' or run 'wola.link reconnect')${C_RESET}"
             echo ""
             show_local_gateway
             exit 0
@@ -352,19 +730,24 @@ case "$1" in
         echo -e "  • Tunnel Provider : ${C_DIM}${PROVIDER}${C_RESET}"
         ping_test "$URL"
         copy_clipboard "$URL"
+
+        # Check Tailscale quick status
+        local ts_json
+        ts_json=$(get_tailscale_json)
+        local ts_ip
+        ts_ip=$(python3 -c "import json; data=json.loads('''$ts_json'''); print(data.get('ip') or '')")
+        if [ -n "$ts_ip" ]; then
+            echo -e "  • Tailscale Mesh  : ${C_BLUE}${C_BOLD}http://${ts_ip}:${PORT}${C_RESET} (Tailnet active)"
+        fi
+
         echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
         show_qr "$URL"
         echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
-        echo -e "  ${C_BOLD}Local Offline Links (Zero Internet):${C_RESET}"
-        echo -e "    • Mobile Hotspot : ${C_GREEN}http://192.168.43.1:${PORT}${C_RESET}"
-        echo -e "    • View QR & LAN  : ${C_CYAN}wola local${C_RESET} or ${C_CYAN}wola.url local${C_RESET}"
-        echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
-        echo -e "  ${C_BOLD}Actions:${C_RESET}"
-        echo -e "    wola.url local            Show offline local link, QR & hotspot steps"
-        echo -e "    wola.url copy             Copy URL to clipboard"
-        echo -e "    wola.url switch serveo    Switch tunnel provider to serveo.net"
-        echo -e "    wola.url switch pinggy    Switch tunnel provider to pinggy.io"
-        echo -e "    wola.url reconnect        Force reconnect active tunnel"
+        echo -e "  ${C_BOLD}Alternative Connectivity Routes:${C_RESET}"
+        echo -e "    • Tailscale Mesh : ${C_BLUE}wola.link tailscale${C_RESET} (Encrypted peer-to-peer)"
+        echo -e "    • Offline Hotspot: ${C_GREEN}wola.hotspot${C_RESET}        (Zero-internet Wi-Fi/AP)"
+        echo -e "    • Network Audit  : ${C_CYAN}wola.link status${C_RESET}    (Complete connectivity audit)"
+        echo -e "    • Network Test   : ${C_YELLOW}wola.link test${C_RESET}      (Benchmark latency of all routes)"
         echo -e "${C_CYAN}=================================================================${C_RESET}"
         ;;
 esac

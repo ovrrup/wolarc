@@ -797,6 +797,10 @@ deploy_binaries() {
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.local"
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.hotspot"
 
+    # Tailscale Mesh: wola.ts (technical) <-> wola.tailscale (casual)
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.ts"
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.tailscale"
+
     # Settings / Config: wola.t (technical) <-> wola.config (casual)
     ln -sf "$TARGET_BIN/wola.t" "$TARGET_BIN/wola.config"
 
@@ -882,6 +886,7 @@ deploy_binaries() {
     echo -e "    Thinking   : wola.think     / wola.th"
     echo -e "    Gateway    : wola.link      / wola.url"
     echo -e "    Hotspot    : wola.hotspot   / wola.local"
+    echo -e "    Tailscale  : wola.tailscale / wola.ts"
     echo -e "    Config     : wola.config    / wola.t"
     echo -e "    Update     : wola.update    / wola.u"
     echo -e "    Uninstall  : wola.uninstall / wola.purge"

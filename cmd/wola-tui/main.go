@@ -37,6 +37,7 @@ COMMAND PAIRS (Casual / Technical):
     think, th          Toggle or view reasoning thinking stream
     link, url          Display active Gateway Tunnel URL & QR code
     hotspot, local     Display Local Offline Gateway & Hotspot Pairing
+    tailscale, ts      Inspect Tailscale mesh IP & connection links
     config, t          Inspect or update configuration settings
     update, u          Check and install updates from GitHub
     uninstall, purge   Clean removal & system reset
@@ -59,6 +60,7 @@ func printStatus(cfg *config.Config) {
 	ram := system.GetRAMInfo()
 	metrics := config.GetMetrics(cfg)
 	tunnelURL := config.GetTunnelURL()
+	tsIP := system.GetTailscaleIP()
 
 	fmt.Println("=================================================================")
 	fmt.Printf("                   WOLARC NODE STATUS (%s)\n", Version)
@@ -86,6 +88,11 @@ func printStatus(cfg *config.Config) {
 		fmt.Printf("  Gateway Tunnel   : %s\n", tunnelURL)
 	} else {
 		fmt.Println("  Gateway Tunnel   : Inactive")
+	}
+	if tsIP != "" {
+		fmt.Printf("  Tailscale Mesh   : http://%s:%s (Active)\n", tsIP, cfg.AgentPort)
+	} else {
+		fmt.Println("  Tailscale Mesh   : Inactive")
 	}
 	if metrics.TotalPredictedTokens > 0 {
 		fmt.Printf("  Inference Speed  : %.1f tok/s (Prompt: %.1f tok/s)\n", metrics.PredictedPerSecond, metrics.PromptPerSecond)
@@ -150,6 +157,14 @@ func main() {
 			fmt.Println("✓ Wolarc restart initiated.")
 			return
 		case "link", "url":
+			if len(os.Args) > 2 {
+				cmd := exec.Command("wola.url", os.Args[2:]...)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				_ = cmd.Run()
+				return
+			}
 			tURL := config.GetTunnelURL()
 			if tURL != "" {
 				fmt.Printf("Gateway Tunnel URL : %s\n", tURL)
@@ -159,7 +174,15 @@ func main() {
 			}
 			return
 		case "hotspot", "local":
-			cmd := exec.Command("wola.url", "local")
+			cmd := exec.Command("wola.url", append([]string{"local"}, os.Args[2:]...)...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+			return
+		case "ts", "tailscale":
+			cmd := exec.Command("wola.url", append([]string{"tailscale"}, os.Args[2:]...)...)
+			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()

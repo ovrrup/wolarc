@@ -21,6 +21,14 @@ except Exception:
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, HEAD"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin, User-Agent, Cache-Control"
+    response.headers["Access-Control-Max-Age"] = "86400"
+    return response
+
 CONFIG_PATH = os.path.expanduser("~/.wolarc")
 THINKING_LOG = os.path.expanduser("~/.wola_thinking.log")
 
@@ -645,9 +653,78 @@ def get_active_tunnel_url():
             pass
     return "Not active"
 
+def is_tailscale_ip(ip):
+    try:
+        parts = [int(p) for p in ip.split(".")]
+        return len(parts) == 4 and parts[0] == 100 and (64 <= parts[1] <= 127)
+    except Exception:
+        return False
+
+def get_tailscale_info():
+    info = {
+        "installed": False,
+        "running": False,
+        "ip": None,
+        "magicdns": None,
+        "mode": None
+    }
+    import shutil
+    ts_bin = shutil.which("tailscale")
+    if ts_bin:
+        info["installed"] = True
+        try:
+            out = subprocess.check_output([ts_bin, "status", "--json"], stderr=subprocess.DEVNULL, timeout=2).decode()
+            data = json.loads(out)
+            self_node = data.get("Self", {})
+            ips = self_node.get("TailscaleIPs", [])
+            for ip in ips:
+                if ":" not in ip and is_tailscale_ip(ip):
+                    info["ip"] = ip
+                    break
+            dns = self_node.get("DNSName", "").rstrip(".")
+            if dns:
+                info["magicdns"] = dns
+            info["running"] = bool(self_node.get("Online", False))
+            info["mode"] = "cli"
+            if info["ip"]:
+                return info
+        except Exception:
+            pass
+
+    for cmd in [["ip", "-4", "addr"], ["ifconfig"]]:
+        try:
+            out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2).decode()
+            cur_iface = ""
+            for line in out.splitlines():
+                if line and not line.startswith(" "):
+                    cur_iface = line.split(":")[0].split()[0].strip()
+                m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
+                if m:
+                    ip = m.group(1)
+                    if is_tailscale_ip(ip):
+                        info["running"] = True
+                        info["ip"] = ip
+                        info["mode"] = "android-app" if "tun" in cur_iface else "interface"
+                        return info
+        except Exception:
+            pass
+
+    return info
+
 def get_local_interfaces():
     interfaces = []
     seen_ips = set()
+
+    ts = get_tailscale_info()
+    if ts.get("running") and ts.get("ip"):
+        seen_ips.add(ts["ip"])
+        interfaces.append({
+            "iface": "tailscale",
+            "ip": ts["ip"],
+            "label": "Tailscale Mesh VPN",
+            "magicdns": ts.get("magicdns")
+        })
+
     for cmd in [['ifconfig'], ['ip', '-4', 'addr']]:
         try:
             out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
@@ -661,8 +738,9 @@ def get_local_interfaces():
                     if ip != '127.0.0.1' and not ip.startswith('169.254.'):
                         if ip not in seen_ips:
                             seen_ips.add(ip)
-                            label = 'Local Wi-Fi / LAN'
-                            if cur_iface and ('ap' in cur_iface or 'swlan' in cur_iface):
+                            if is_tailscale_ip(ip):
+                                label = 'Tailscale Mesh VPN'
+                            elif cur_iface and ('ap' in cur_iface or 'swlan' in cur_iface):
                                 label = 'Mobile Hotspot'
                             elif cur_iface and ('rndis' in cur_iface or 'usb' in cur_iface):
                                 label = 'USB Tethering'
@@ -670,6 +748,8 @@ def get_local_interfaces():
                                 label = 'Mobile Hotspot'
                             elif ip.startswith('192.168.42.'):
                                 label = 'USB Tethering'
+                            else:
+                                label = 'Local Wi-Fi / LAN'
                             interfaces.append({'iface': cur_iface or 'net', 'ip': ip, 'label': label})
             if interfaces:
                 break
@@ -684,7 +764,7 @@ def get_local_interfaces():
             s.close()
             if ip and ip != '127.0.0.1' and ip not in seen_ips:
                 seen_ips.add(ip)
-                label = 'Local Wi-Fi / LAN'
+                label = 'Tailscale Mesh VPN' if is_tailscale_ip(ip) else 'Local Wi-Fi / LAN'
                 if ip.startswith('192.168.43.'):
                     label = 'Mobile Hotspot'
                 elif ip.startswith('192.168.42.'):
@@ -713,13 +793,19 @@ def local_info():
     primary_url = f"http://{interfaces[0]['ip']}:{port}" if interfaces else hotspot_url
     lan_url = ""
     usb_url = ""
+    tailscale_url = ""
+    ts_info = get_tailscale_info()
+    if ts_info.get("ip"):
+        tailscale_url = f"http://{ts_info['ip']}:{port}"
+
     for iface in interfaces:
         ip = iface["ip"]
-        if ip.startswith("192.168.42.") or "rndis" in iface["iface"] or "usb" in iface["iface"]:
+        if ip.startswith("192.168.42.") or "rndis" in iface.get("iface", "") or "usb" in iface.get("iface", ""):
             usb_url = f"http://{ip}:{port}"
-        elif ip != "192.168.43.1" and not lan_url:
+        elif ip != "192.168.43.1" and not is_tailscale_ip(ip) and not lan_url:
             lan_url = f"http://{ip}:{port}"
 
+    tunnel_url = get_active_tunnel_url()
     return jsonify({
         "status": "online",
         "port": port,
@@ -728,8 +814,13 @@ def local_info():
         "hotspot_url": hotspot_url,
         "lan_url": lan_url,
         "usb_url": usb_url,
+        "tailscale_url": tailscale_url,
+        "tailscale_ip": ts_info.get("ip"),
+        "tailscale_magicdns": ts_info.get("magicdns"),
+        "tailscale_active": bool(ts_info.get("running")),
         "api_endpoint": f"{primary_url}/v1",
-        "tunnel_url": get_active_tunnel_url()
+        "tunnel_url": tunnel_url,
+        "tunnel_active": bool(tunnel_url and tunnel_url != "Not active")
     })
 
 @app.route("/health", methods=["GET"])

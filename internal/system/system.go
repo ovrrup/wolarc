@@ -92,13 +92,41 @@ func CheckAllServices(chatPort, embedPort string) ServiceStatus {
 	agentOk, agentPid := CheckProcess("agent.py")
 	s.AgentGateway = ProcessInfo{Name: "Agent Gateway", Running: agentOk, PID: agentPid}
 
-	tunnelOk, tunnelPid := CheckProcess("ssh.*(localhost.run|serveo.net|pinggy.io)")
+	tunnelOk, tunnelPid := CheckProcess("ssh.*(localhost.run|serveo.net|pinggy.io)|cloudflared.*tunnel")
+	if !tunnelOk {
+		tunnelOk, tunnelPid = CheckProcess("wola-tunnel-daemon")
+	}
 	s.Tunnel = ProcessInfo{Name: "Public Tunnel", Running: tunnelOk, PID: tunnelPid}
 
 	idxOk, idxPid := CheckProcess("indexer.py")
 	s.Indexer = ProcessInfo{Name: "Vector Indexer", Running: idxOk, PID: idxPid}
 
 	return s
+}
+
+func GetTailscaleIP() string {
+	out, err := exec.Command("tailscale", "ip", "-4").Output()
+	if err == nil {
+		ip := strings.TrimSpace(string(out))
+		if ip != "" && strings.HasPrefix(ip, "100.") {
+			return ip
+		}
+	}
+	out, err = exec.Command("ip", "-4", "addr", "show").Output()
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			fields := strings.Fields(line)
+			for _, f := range fields {
+				if strings.Contains(f, "/") {
+					candidate := strings.Split(f, "/")[0]
+					if strings.HasPrefix(candidate, "100.") {
+						return candidate
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func StartServices() error {

@@ -562,6 +562,29 @@ textarea {
       <div class="modal-title">📱 Connect Other Devices to Wola</div>
       <button class="modal-close" id="modal-close">✕</button>
     </div>
+    <div class="conn-card" id="card-tailscale" style="border-left: 3px solid #3b82f6;">
+      <div class="conn-title" style="color: #60a5fa;">🔒 Tailscale Mesh VPN (Zero-Config Peer Network)</div>
+      <div class="conn-desc">
+        Connect securely from any laptop, phone, or server on your Tailnet without port forwarding:
+      </div>
+      <div class="conn-link-row">
+        <span class="conn-link-text" id="link-tailscale">Detecting Tailscale...</span>
+        <button class="conn-copy-btn" id="btn-copy-tailscale" onclick="copyValue(document.getElementById('link-tailscale').innerText, this)">Copy</button>
+      </div>
+      <div class="conn-desc" id="tailscale-magicdns-row" style="font-size:11.5px; color:#94a3b8; margin-top:3px; display:none;">
+        MagicDNS: <code id="text-magicdns"></code>
+      </div>
+    </div>
+    <div class="conn-card" id="card-tunnel" style="border-left: 3px solid #10b981;">
+      <div class="conn-title" style="color: #34d399;">🌐 Public Encrypted Tunnel (Remote Off-Network)</div>
+      <div class="conn-desc">
+        Access from anywhere outside your local Wi-Fi without VPN:
+      </div>
+      <div class="conn-link-row">
+        <span class="conn-link-text" id="link-tunnel">Detecting Tunnel...</span>
+        <button class="conn-copy-btn" id="btn-copy-tunnel" onclick="copyValue(document.getElementById('link-tunnel').innerText, this)">Copy</button>
+      </div>
+    </div>
     <div class="conn-card">
       <div class="conn-title">🔥 Android Mobile Hotspot (No Internet or Wi-Fi Router)</div>
       <div class="conn-desc">
@@ -924,6 +947,32 @@ async function handleSubmit() {
 fetch("/v1/local_info")
   .then(r => r.json())
   .then(data => {
+    // Tailscale
+    const elTs = document.getElementById("link-tailscale");
+    const elMagic = document.getElementById("tailscale-magicdns-row");
+    const elTextMagic = document.getElementById("text-magicdns");
+    if (elTs) {
+      if (data.tailscale_url) {
+        elTs.innerText = data.tailscale_url;
+        if (data.tailscale_magicdns && elMagic && elTextMagic) {
+          elTextMagic.innerText = "http://" + data.tailscale_magicdns + ":" + (data.port || 5000);
+          elMagic.style.display = "block";
+        }
+      } else {
+        elTs.innerText = "Tailscale not detected (Open Tailscale app to connect)";
+      }
+    }
+
+    // Tunnel
+    const elTun = document.getElementById("link-tunnel");
+    if (elTun) {
+      if (data.tunnel_url && data.tunnel_active) {
+        elTun.innerText = data.tunnel_url;
+      } else {
+        elTun.innerText = "Tunnel offline (Run 'wola.link reconnect')";
+      }
+    }
+
     if (data.hotspot_url) {
       document.getElementById("link-hotspot").innerText = data.hotspot_url;
     }
@@ -939,7 +988,7 @@ fetch("/v1/local_info")
     } else {
       document.getElementById("link-usb").innerText = "Plug in USB and enable tethering";
     }
-    const apiBase = data.lan_url || data.primary_url || data.hotspot_url;
+    const apiBase = data.tailscale_url || data.lan_url || data.primary_url || data.hotspot_url;
     if (apiBase) {
       document.getElementById("link-api").innerText = apiBase + "/v1";
     }

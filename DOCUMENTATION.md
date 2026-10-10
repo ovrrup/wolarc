@@ -22,7 +22,7 @@
    - [Vector Knowledge Base & RAG Indexer (`wola.knowledge` / `wola.i`)](#vector-knowledge-base--rag-indexer)
    - [Hardware Profiling & Auto-Tuning (`wola.bench` / `wola.b`)](#hardware-profiling--auto-tuning)
    - [Diagnostics & Live Logging (`wola.log` / `wola.l`, `wola.think` / `wola.th`)](#diagnostics--live-logging)
-   - [Gateways & Network Connectivity (`wola.link` / `wola.url`, `wola.hotspot` / `wola.local`)](#gateways--network-connectivity)
+   - [Gateways & Network Connectivity (`wola.link` / `wola.url`, `wola.hotspot` / `wola.local`, `wola.tailscale` / `wola.ts`)](#gateways--network-connectivity)
    - [Configuration Parameter Tuning (`wola.config` / `wola.t`)](#configuration-parameter-tuning)
    - [Maintenance & Updates (`wola.update` / `wola.u`)](#maintenance--updates)
    - [Interactive Command Center (`wola.help` / `wola.h`)](#interactive-command-center)
@@ -33,11 +33,14 @@
    - [Vector Database Architecture (`knowledge_db.json`)](#vector-database-architecture)
    - [Cosine Similarity Scoring & Dynamic Thresholding](#cosine-similarity-scoring--dynamic-thresholding)
    - [Memory Blending: Base Intelligence vs. Personal Context](#memory-blending-base-intelligence-vs-personal-context)
-6. [Offline Air-Gapped Networking & Remote Tunneling](#6-offline-air-gapped-networking--remote-tunneling)
+6. [Offline Air-Gapped Networking, Tailscale Mesh & Remote Tunneling](#6-offline-air-gapped-networking-tailscale-mesh--remote-tunneling)
    - [Local Wi-Fi LAN Discovery](#local-wi-fi-lan-discovery)
    - [Android Portable Hotspot Pairing](#android-portable-hotspot-pairing)
    - [USB Reverse Tethering / RNDIS](#usb-reverse-tethering--rndis)
-   - [Self-Healing Multi-Provider Remote Tunnels](#self-healing-multi-provider-remote-tunnels)
+   - [Tailscale WireGuard Mesh VPN Integration](#tailscale-wireguard-mesh-vpn-integration)
+   - [Cloudflare Quick Tunnels](#cloudflare-quick-tunnels)
+   - [Autonomous Tunnel Watchdog Daemon (`wola-tunnel-daemon`)](#autonomous-tunnel-watchdog-daemon)
+   - [Multi-Route Reachability & Latency Benchmark (`wola.link test`)](#multi-route-reachability--latency-benchmark)
 7. [Inference Engine & Deep Reasoning Controls](#7-inference-engine--deep-reasoning-controls)
    - [Deep Thinking Mechanism (`<think>`)](#deep-thinking-mechanism-think)
    - [Dual Engine Isolation (Chat vs. Embed)](#dual-engine-isolation-chat-vs-embed)
@@ -174,6 +177,7 @@ Wolarc enforces a strict rule across the entire codebase:
 | **Reasoning Stream** | `think` | `th` | `wola think` / `wola th` | `wola.think` / `wola.th` |
 | **Remote Gateway Link** | `link` | `url` | `wola link` / `wola url` | `wola.link` / `wola.url` |
 | **Offline Hotspot** | `hotspot` | `local` | `wola hotspot` / `wola local`| `wola.hotspot` / `wola.local` |
+| **Tailscale Mesh VPN** | `tailscale` | `ts` | `wola tailscale` / `wola ts` | `wola.tailscale` / `wola.ts` |
 | **Configuration Tuner** | `config` | `t` | `wola config` / `wola t` | `wola.config` / `wola.t` |
 | **Update Checker** | `update` | `u` | `wola update` / `wola u` | `wola.update` / `wola.u` |
 | **System Uninstaller** | `uninstall` | `purge` | `wola uninstall` / `wola purge`| `wola.uninstall` / `wola.purge` |
@@ -460,20 +464,52 @@ wola.think status  # Check current thinking state
 ### Gateways & Network Connectivity
 
 #### `wola.link` / `wola.url`
-Manages public network access and remote device pairing:
+Manages public network access, tunnels, and connectivity diagnostics:
 
 ```bash
 # Display active public URL, latency ping, and camera-scannable ASCII QR code
 wola.link
 wola.url
 
+# Run multi-route latency & reachability benchmark across all interfaces
+wola.link test
+
+# Display comprehensive connection audit and watchdog status
+wola.link status
+
+# Switch tunnel provider directly (cloudflare, localhost.run, serveo, pinggy)
+wola.link switch cloudflare
+wola.link switch localhost.run
+
+# Force tunnel reconnect & restart watchdog
+wola.link reconnect
+
 # Copy public API endpoint to clipboard
 wola.link copy
 wola.url copy
+```
 
-# Force tunnel reconnect or provider switch
-wola.link reconnect
-wola.url switch serveo
+#### `wola.tailscale` / `wola.ts`
+Manages Tailscale WireGuard mesh VPN peer connectivity:
+
+```bash
+# Inspect Tailscale mesh IP, connection links, and status
+wola.tailscale
+wola.ts
+wola.link tailscale
+
+# Display Tailscale QR code for mobile connection
+wola.ts qr
+
+# Copy Tailscale API endpoint (http://100.x.y.z:5000/v1) to clipboard
+wola.ts copy
+
+# View interactive Tailscale setup and activation guide
+wola.ts guide
+
+# Configure Tailscale Serve / Funnel
+wola.ts serve
+wola.ts funnel
 ```
 
 #### `wola.hotspot` / `wola.local`
@@ -644,7 +680,9 @@ Rather than blindly appending raw text with instructions like "Answer only using
 
 ---
 
-## 6. Offline Air-Gapped Networking & Remote Tunneling
+## 6. Offline Air-Gapped Networking, Tailscale Mesh & Remote Tunneling
+
+Wolarc implements a multi-layer network topology designed for resilience across air-gapped field deployments, private mesh networks, and public remote access.
 
 ### Local Wi-Fi LAN Discovery
 
@@ -664,15 +702,40 @@ When travelling or completely off-grid with no Wi-Fi or cellular service:
 
 Connect your phone to a PC via USB cable and enable USB Tethering. Wolarc automatically detects the RNDIS interface (`192.168.42.129:5000`), allowing ultra-low latency direct cable access without wireless interference.
 
-### Self-Healing Multi-Provider Remote Tunnels
+### Tailscale WireGuard Mesh VPN Integration
 
-When public internet access is required:
-- Wolarc negotiates an outbound encrypted SSH reverse tunnel on Port 80.
-- Automatically attempts:
-  1. `localhost.run` (returns `https://<subdomain>.lhr.life`)
-  2. `serveo.net` (returns `https://<subdomain>.serveo.net`)
-  3. `pinggy.io` (returns `https://<subdomain>.pinggy.link`)
-- If a provider disconnects or fails health checks, Wolarc re-negotiates with the next available provider automatically.
+Tailscale establishes a zero-configuration, encrypted WireGuard overlay mesh network (tailnet) connecting your phone, PC, and remote devices globally without exposing any public ports:
+
+- **Dual-Mode OS & CLI Auto-Detection**:
+  - *Android OS App Mode*: Directly inspects virtual interface IP assignments (`100.64.0.0/10` on `tun*`). If the official Android Tailscale app is active, Wolarc identifies the mesh IP and generates pairing endpoints without needing root or command-line tools.
+  - *Termux / Linux CLI Mode*: When the `tailscale` binary is installed in `$PATH`, Wolarc automatically queries MagicDNS hostnames (e.g. `http://my-phone.tailnet.ts.net:5000/`), status, and enables `wola.ts serve` and `wola.ts funnel`.
+- **Universal CORS Header Injection**: Third-party web clients (NextChat Web, Chatbox Web, OpenWebUI) require Cross-Origin Resource Sharing headers to reach private IP ranges. Wolarc's API Gateway automatically injects `Access-Control-Allow-Origin: *` and complete preflight options on all routes.
+- **Commands**:
+  - `wola.tailscale` / `wola.ts`: Displays Tailscale status, assigned IP, MagicDNS address, and pairing links.
+  - `wola.ts qr`: Generates an in-terminal QR code for mobile scanning.
+  - `wola.ts copy`: Copies `http://100.x.y.z:5000/v1` to system clipboard.
+  - `wola.ts guide`: Displays interactive platform setup and troubleshooting instructions.
+
+### Cloudflare Quick Tunnels
+
+Cloudflare Quick Tunnels (`cloudflared tunnel --url http://127.0.0.1:5000`) provide high-bandwidth, zero-rate-limit public HTTPS URLs on `trycloudflare.com` without requiring an account or API token:
+- If `cloudflared` is detected on the host system, Wolarc prioritizes Cloudflare as its premier remote tunnel provider.
+- Full support for real-time Server-Sent Events (SSE) streaming and large token context transfers.
+
+### Autonomous Tunnel Watchdog Daemon (`bin/wola-tunnel-daemon`)
+
+To eliminate brittle SSH disconnects and silent drops, Wolarc runs an autonomous background watchdog daemon:
+- **Health Loop**: Sends an HTTP health probe to `${url}/health` every 20 seconds.
+- **Automatic Fallback Cascading**: If 2 consecutive health checks fail, the watchdog automatically terminates the stale process and negotiates a new tunnel across the provider cascade:
+  $$\text{Cloudflare Quick Tunnel} \longrightarrow \text{localhost.run} \longrightarrow \text{serveo.net} \longrightarrow \text{pinggy.io}$$
+- **Process Supervision**: Detaches cleanly with PID tracking (`~/.wola_tunnel_daemon.pid`), monitors parent node status via `~/.wola.lock`, and logs all connection events to `~/tunnel.log`.
+- **Diagnostics**: Run `wola-tunnel-daemon status` or `wola.link status` to inspect watchdog telemetry and provider health.
+
+### Multi-Route Reachability & Latency Benchmark (`wola.link test`)
+
+Audits the latency and availability of all network layers simultaneously:
+- Pings Localhost loopback, Wi-Fi LAN, Mobile Hotspot, Tailscale mesh, and Public tunnel.
+- Tests outbound SSH/HTTPS reachability across all tunnel providers to diagnose ISP/firewall blocks.
 
 ---
 

@@ -216,93 +216,55 @@ start_node() {
         exit 1
     fi
 
-    echo -n -e "[*] Negotiating resilient tunnel (localhost.run -> serveo -> pinggy) "
-    rm -f "$HOME/tunnel.log"
-    pkill -9 -f "ssh.*localhost.run" 2>/dev/null
-    pkill -9 -f "ssh.*serveo.net" 2>/dev/null
-    pkill -9 -f "ssh.*pinggy" 2>/dev/null
+    echo -n -e "[*] Starting Autonomous Tunnel Watchdog (Cloudflare -> localhost.run -> serveo -> pinggy)... "
+    local tdaemon=""
+    if [ -x "${PREFIX:-/data/data/com.termux/files/usr}/bin/wola-tunnel-daemon" ]; then
+        tdaemon="${PREFIX:-/data/data/com.termux/files/usr}/bin/wola-tunnel-daemon"
+    elif [ -x "$(dirname "$0")/wola-tunnel-daemon" ]; then
+        tdaemon="$(dirname "$0")/wola-tunnel-daemon"
+    elif [ -x "$HOME/wola/bin/wola-tunnel-daemon" ]; then
+        tdaemon="$HOME/wola/bin/wola-tunnel-daemon"
+    fi
 
-    local providers=("localhost.run" "serveo" "pinggy")
     TUNNEL_URL=""
     ACTIVE_PROVIDER=""
-
-    for p in "${providers[@]}"; do
-        rm -f "$HOME/tunnel.log"
-        case "$p" in
-            "localhost.run")
-                $runner ssh -o StrictHostKeyChecking=no \
-                          -o ServerAliveInterval=10 \
-                          -o ServerAliveCountMax=3 \
-                          -o TCPKeepAlive=yes \
-                          -o IPQoS=lowdelay \
-                          -o Compression=no \
-                          -o ExitOnForwardFailure=yes \
-                          -R 80:localhost:${port} \
-                          nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
-                ;;
-            "serveo")
-                $runner ssh -o StrictHostKeyChecking=no \
-                          -o ServerAliveInterval=10 \
-                          -o ServerAliveCountMax=3 \
-                          -o TCPKeepAlive=yes \
-                          -o IPQoS=lowdelay \
-                          -o Compression=no \
-                          -o ExitOnForwardFailure=yes \
-                          -R 80:localhost:${port} \
-                          serveo.net > "$HOME/tunnel.log" 2>&1 &
-                ;;
-            "pinggy")
-                $runner ssh -o StrictHostKeyChecking=no \
-                          -o ServerAliveInterval=10 \
-                          -o ServerAliveCountMax=3 \
-                          -o TCPKeepAlive=yes \
-                          -o IPQoS=lowdelay \
-                          -o Compression=no \
-                          -o ExitOnForwardFailure=yes \
-                          -R 0:localhost:${port} \
-                          a.pinggy.io > "$HOME/tunnel.log" 2>&1 &
-                ;;
-        esac
-
-        for i in {1..12}; do
-            case "$p" in
-                "localhost.run")
-                    TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.lhr\.life" "$HOME/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1)
-                    ;;
-                "serveo")
-                    TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.serveo\.net" "$HOME/tunnel.log" 2>/dev/null | tail -n 1)
-                    ;;
-                "pinggy")
-                    TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.(?:free\.)?pinggy\.link" "$HOME/tunnel.log" 2>/dev/null | tail -n 1)
-                    ;;
-            esac
-            if [ -n "$TUNNEL_URL" ]; then
-                ACTIVE_PROVIDER="$p"
-                break 2
-            fi
-            echo -n "."
-            sleep 1
-        done
-        pkill -9 -f "ssh.*$p" 2>/dev/null
-    done
-    echo ""
+    if [ -n "$tdaemon" ]; then
+        TUNNEL_URL=$("$tdaemon" start 2>/dev/null | tail -n 1)
+        [ -f "$HOME/.wola_provider" ] && ACTIVE_PROVIDER=$(cat "$HOME/.wola_provider" 2>/dev/null | tr -d ' \n\r')
+        [ -f "$HOME/.wola_url" ] && [ -z "$TUNNEL_URL" ] && TUNNEL_URL=$(cat "$HOME/.wola_url" 2>/dev/null | tr -d ' \n\r')
+        echo -e "${C_GREEN}READY${C_RESET}"
+    else
+        echo -e "${C_YELLOW}SKIPPED (wola-tunnel-daemon missing)${C_RESET}"
+    fi
 
     disown -a 2>/dev/null || true
 
-    if [ -n "$TUNNEL_URL" ]; then
-        echo "$TUNNEL_URL" > "$HOME/.wola_url"
-        echo "${TUNNEL_URL}/v1" > "$HOME/.wola_endpoint"
-        echo "$ACTIVE_PROVIDER" > "$HOME/.wola_provider"
-    else
-        rm -f "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider"
+    # Detect Tailscale and Local LAN addresses
+    local ts_ip=""
+    if command -v tailscale >/dev/null 2>&1; then
+        ts_ip=$(tailscale ip -4 2>/dev/null | head -n 1)
+    fi
+    if [ -z "$ts_ip" ] && command -v ip >/dev/null 2>&1; then
+        ts_ip=$(ip -4 addr show 2>/dev/null | grep -oE "100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}" | head -n 1)
+    fi
+
+    local lan_ip=""
+    if command -v ip >/dev/null 2>&1; then
+        lan_ip=$(ip -4 addr show 2>/dev/null | grep -oE "192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]{1,3}\.[0-9]{1,3}" | grep -v "127.0.0.1" | head -n 1)
     fi
 
     echo -e "${C_CYAN}=================================================================${C_RESET}"
     echo -e "  ${C_BOLD}WOLA AI NODE ONLINE [SWITCH: ON]${C_RESET}"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
+    if [ -n "$ts_ip" ]; then
+        echo -e "  ${C_BOLD}Tailscale Mesh  :${C_RESET} ${C_CYAN}http://${ts_ip}:${port}${C_RESET} (${C_GREEN}Tailscale Active${C_RESET})"
+    fi
+    if [ -n "$lan_ip" ]; then
+        echo -e "  ${C_BOLD}Local / Hotspot :${C_RESET} ${C_CYAN}http://${lan_ip}:${port}${C_RESET}"
+    fi
     if [ -n "$TUNNEL_URL" ]; then
-        echo -e "  ${C_BOLD}Public Base URL :${C_RESET} ${C_GREEN}${TUNNEL_URL}${C_RESET} (${C_DIM}provider: ${ACTIVE_PROVIDER}${C_RESET})"
-        echo -e "  ${C_BOLD}API Endpoint    :${C_RESET} ${C_GREEN}${TUNNEL_URL}/v1${C_RESET}"
+        echo -e "  ${C_BOLD}Public Tunnel   :${C_RESET} ${C_GREEN}${TUNNEL_URL}${C_RESET} (${ACTIVE_PROVIDER})"
+        echo -e "  ${C_BOLD}Tunnel API      :${C_RESET} ${C_GREEN}${TUNNEL_URL}/v1${C_RESET}"
     else
         echo -e "  ${C_YELLOW}Tunnel offline. Local API active at http://127.0.0.1:${port}/v1${C_RESET}"
     fi
@@ -334,9 +296,22 @@ stop_node() {
     pkill -9 -f "llama-server" 2>/dev/null
     pkill -9 -f "indexer.py" 2>/dev/null
     pkill -9 -f "agent.py" 2>/dev/null
+
+    local tdaemon=""
+    if [ -x "${PREFIX:-/data/data/com.termux/files/usr}/bin/wola-tunnel-daemon" ]; then
+        tdaemon="${PREFIX:-/data/data/com.termux/files/usr}/bin/wola-tunnel-daemon"
+    elif [ -x "$(dirname "$0")/wola-tunnel-daemon" ]; then
+        tdaemon="$(dirname "$0")/wola-tunnel-daemon"
+    elif [ -x "$HOME/wola/bin/wola-tunnel-daemon" ]; then
+        tdaemon="$HOME/wola/bin/wola-tunnel-daemon"
+    fi
+    [ -n "$tdaemon" ] && "$tdaemon" stop >/dev/null 2>&1
+    pkill -9 -f "wola-tunnel-daemon" 2>/dev/null
+    pkill -9 -f "cloudflared.*tunnel" 2>/dev/null
     pkill -9 -f "ssh.*localhost.run" 2>/dev/null
     pkill -9 -f "ssh.*serveo.net" 2>/dev/null
     pkill -9 -f "ssh.*pinggy" 2>/dev/null
+
     rm -f "$LOCK" "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider"
     termux-wake-unlock 2>/dev/null
     echo -e "${C_GREEN}[+] [SWITCH: OFF] Services stopped and wake-lock released.${C_RESET}"
@@ -385,11 +360,25 @@ status_node() {
     local e_pid=$(pgrep -f "llama-server.*${EMBED_PORT:-8081}" | head -n 1)
     local a_pid=$(pgrep -f "agent.py" | head -n 1)
     local i_pid=$(pgrep -f "indexer.py" | head -n 1)
+    local t_pid=$(pgrep -f "wola-tunnel-daemon" | head -n 1)
+    [ -z "$t_pid" ] && t_pid=$(pgrep -f "cloudflared.*tunnel|ssh.*(localhost.run|serveo.net|pinggy.io)" | head -n 1)
 
     echo -e "  • Chat Server  (8080): $([ -n "$c_pid" ] && echo -e "${C_GREEN}Active (PID $c_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
     echo -e "  • Embed Server (8081): $([ -n "$e_pid" ] && echo -e "${C_GREEN}Active (PID $e_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
     echo -e "  • Agent API    (5000): $([ -n "$a_pid" ] && echo -e "${C_GREEN}Active (PID $a_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
     echo -e "  • Indexer Daemon     : $([ -n "$i_pid" ] && echo -e "${C_GREEN}Active (PID $i_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
+    echo -e "  • Tunnel Daemon      : $([ -n "$t_pid" ] && echo -e "${C_GREEN}Active (PID $t_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
+
+    if [ -f "$HOME/.wola_url" ]; then
+        echo -e "  • Tunnel URL         : ${C_GREEN}$(cat "$HOME/.wola_url")${C_RESET} (${C_DIM}$(cat "$HOME/.wola_provider" 2>/dev/null)${C_RESET})"
+    fi
+
+    local ts_ip=""
+    command -v tailscale >/dev/null 2>&1 && ts_ip=$(tailscale ip -4 2>/dev/null | head -n 1)
+    [ -z "$ts_ip" ] && command -v ip >/dev/null 2>&1 && ts_ip=$(ip -4 addr show 2>/dev/null | grep -oE "100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}" | head -n 1)
+    if [ -n "$ts_ip" ]; then
+        echo -e "  • Tailscale Mesh IP  : ${C_CYAN}http://${ts_ip}:${AGENT_PORT:-5000}${C_RESET} (${C_GREEN}Active${C_RESET})"
+    fi
     echo -e "${C_CYAN}=================================================================${C_RESET}"
 }
 
@@ -456,6 +445,7 @@ case "$INVOCATION" in
     "wola.th"|"wola.think")         exec "$PREFIX/bin/wola.th" "$@" ;;
     "wola.url"|"wola.link")         exec "$PREFIX/bin/wola.url" "$@" ;;
     "wola.local"|"wola.hotspot")    exec "$PREFIX/bin/wola.url" local "$@" ;;
+    "wola.ts"|"wola.tailscale")     exec "$PREFIX/bin/wola.url" tailscale "$@" ;;
     "wola.t"|"wola.config")         exec "$PREFIX/bin/wola.t" "$@" ;;
     "wola.u"|"wola.update")         exec "$PREFIX/bin/wola.u" "$@" ;;
     "wola.purge"|"wola.uninstall")  exec "$TARGET_PURGE" "$@" ;;
@@ -528,6 +518,9 @@ case "$INVOCATION" in
                 ;;
             "local"|"hotspot")
                 shift; exec "$PREFIX/bin/wola.url" local "$@"
+                ;;
+            "ts"|"tailscale")
+                shift; exec "$PREFIX/bin/wola.url" tailscale "$@"
                 ;;
             "t"|"config")
                 shift; exec "$PREFIX/bin/wola.t" "$@"

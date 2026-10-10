@@ -1,0 +1,324 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# =================================================================
+# Wolarc Autonomous Tunnel Watchdog Daemon
+# Maintains persistent, self-healing remote tunnel connectivity.
+# Supports: Cloudflare Quick Tunnels, localhost.run, serveo.net, pinggy.io
+# =================================================================
+
+CONFIG="$HOME/.wolarc"
+[ -f "$CONFIG" ] && source "$CONFIG"
+
+URL_FILE="$HOME/.wola_url"
+PROVIDER_FILE="$HOME/.wola_provider"
+ENDPOINT_FILE="$HOME/.wola_endpoint"
+LOG_FILE="$HOME/tunnel.log"
+PID_FILE="$HOME/.wola_tunnel_daemon.pid"
+LOCK_FILE="$HOME/.wola.lock"
+
+PORT="${AGENT_PORT:-5000}"
+PREF_PROVIDER="${TUNNEL_PROVIDER:-auto}"
+
+# Runner for detaching processes cleanly
+runner=""
+command -v setsid >/dev/null 2>&1 && runner="setsid -f"
+
+log_msg() {
+    local ts
+    ts=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$ts] [Tunnel Watchdog] $1" >> "$LOG_FILE"
+}
+
+is_local_api_ready() {
+    local code
+    code=$(curl -s -m 3 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/health" 2>/dev/null)
+    [ "$code" = "200" ] || [ "$code" = "204" ]
+}
+
+kill_tunnel_processes() {
+    pkill -9 -f "ssh.*localhost.run" 2>/dev/null || true
+    pkill -9 -f "ssh.*serveo.net" 2>/dev/null || true
+    pkill -9 -f "ssh.*pinggy" 2>/dev/null || true
+    pkill -9 -f "cloudflared.*tunnel.*5000" 2>/dev/null || true
+    pkill -9 -f "cloudflared.*tunnel.*localhost" 2>/dev/null || true
+}
+
+start_single_tunnel() {
+    local prov="$1"
+    kill_tunnel_processes
+    sleep 1
+
+    local tmp_log="$HOME/.wola_tunnel_tmp.log"
+    rm -f "$tmp_log"
+
+    case "$prov" in
+        "cloudflare")
+            if ! command -v cloudflared >/dev/null 2>&1; then
+                return 1
+            fi
+            $runner cloudflared tunnel --url "http://127.0.0.1:${PORT}" > "$tmp_log" 2>&1 &
+            ;;
+        "serveo")
+            $runner ssh -o StrictHostKeyChecking=no \
+                      -o ServerAliveInterval=10 \
+                      -o ServerAliveCountMax=3 \
+                      -o TCPKeepAlive=yes \
+                      -o IPQoS=lowdelay \
+                      -o Compression=no \
+                      -o ExitOnForwardFailure=yes \
+                      -R 80:localhost:${PORT} \
+                      serveo.net > "$tmp_log" 2>&1 &
+            ;;
+        "pinggy")
+            $runner ssh -o StrictHostKeyChecking=no \
+                      -o ServerAliveInterval=10 \
+                      -o ServerAliveCountMax=3 \
+                      -o TCPKeepAlive=yes \
+                      -o IPQoS=lowdelay \
+                      -o Compression=no \
+                      -o ExitOnForwardFailure=yes \
+                      -R 0:localhost:${PORT} \
+                      a.pinggy.io > "$tmp_log" 2>&1 &
+            ;;
+        "localhost.run"|*)
+            $runner ssh -o StrictHostKeyChecking=no \
+                      -o ServerAliveInterval=10 \
+                      -o ServerAliveCountMax=3 \
+                      -o TCPKeepAlive=yes \
+                      -o IPQoS=lowdelay \
+                      -o Compression=no \
+                      -o ExitOnForwardFailure=yes \
+                      -R 80:localhost:${PORT} \
+                      nokey@localhost.run > "$tmp_log" 2>&1 &
+            ;;
+    esac
+
+    local extracted_url=""
+    for i in {1..14}; do
+        case "$prov" in
+            "cloudflare")
+                extracted_url=$(grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" "$tmp_log" 2>/dev/null | tail -n 1)
+                ;;
+            "serveo")
+                extracted_url=$(grep -oE "https://[a-zA-Z0-9.-]+\.serveo\.net" "$tmp_log" 2>/dev/null | tail -n 1)
+                ;;
+            "pinggy")
+                extracted_url=$(grep -oE "https://[a-zA-Z0-9.-]+\.(?:free\.)?pinggy\.link" "$tmp_log" 2>/dev/null | tail -n 1)
+                ;;
+            "localhost.run"|*)
+                extracted_url=$(grep -oE "https://[a-zA-Z0-9.-]+\.lhr\.life" "$tmp_log" 2>/dev/null | grep -v "admin" | tail -n 1)
+                ;;
+        esac
+
+        if [ -n "$extracted_url" ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    if [ -n "$extracted_url" ]; then
+        cat "$tmp_log" >> "$LOG_FILE" 2>/dev/null
+        rm -f "$tmp_log"
+        echo "$extracted_url" > "$URL_FILE"
+        echo "${extracted_url}/v1" > "$ENDPOINT_FILE"
+        echo "$prov" > "$PROVIDER_FILE"
+        log_msg "Established tunnel via ${prov}: ${extracted_url}"
+        echo "$extracted_url"
+        return 0
+    else
+        cat "$tmp_log" >> "$LOG_FILE" 2>/dev/null
+        rm -f "$tmp_log"
+        kill_tunnel_processes
+        return 1
+    fi
+}
+
+reconnect_cascade() {
+    local target_provider="$1"
+    local candidates=()
+
+    if [ -n "$target_provider" ] && [ "$target_provider" != "auto" ]; then
+        candidates=("$target_provider")
+    else
+        # Preferred order: cloudflare (if installed) -> localhost.run -> serveo -> pinggy
+        if command -v cloudflared >/dev/null 2>&1; then
+            candidates+=("cloudflare")
+        fi
+        candidates+=("localhost.run" "serveo" "pinggy")
+    fi
+
+    for candidate in "${candidates[@]}"; do
+        log_msg "Attempting tunnel provider: ${candidate}..."
+        local url
+        url=$(start_single_tunnel "$candidate")
+        if [ $? -eq 0 ] && [ -n "$url" ]; then
+            log_msg "Tunnel active and verified: ${url} (${candidate})"
+            echo "$url"
+            return 0
+        fi
+        log_msg "Provider ${candidate} failed or timed out. Trying next candidate..."
+    done
+
+    log_msg "All tunnel providers exhausted without success."
+    rm -f "$URL_FILE" "$ENDPOINT_FILE"
+    echo "offline" > "$PROVIDER_FILE"
+    return 1
+}
+
+test_tunnel_health() {
+    local url="$1"
+    if [ -z "$url" ]; then
+        return 1
+    fi
+    local code
+    code=$(curl -s -m 6 -o /dev/null -w "%{http_code}" "${url}/health" 2>/dev/null)
+    if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+        return 0
+    fi
+    return 1
+}
+
+watchdog_worker() {
+    log_msg "Starting background watchdog loop (PID $$)..."
+    echo "$$" > "$PID_FILE"
+
+    local fail_count=0
+
+    while true; do
+        # Exit if node lock is gone
+        if [ ! -f "$LOCK_FILE" ]; then
+            log_msg "Wola node lock removed (~/.wola.lock). Exiting watchdog cleanly."
+            kill_tunnel_processes
+            rm -f "$PID_FILE"
+            exit 0
+        fi
+
+        # If local API is not ready, wait without counting failure
+        if ! is_local_api_ready; then
+            sleep 10
+            continue
+        fi
+
+        local cur_url=""
+        [ -f "$URL_FILE" ] && cur_url=$(cat "$URL_FILE" | tr -d ' \n\r')
+
+        # Check process existence
+        local cur_prov="localhost.run"
+        [ -f "$PROVIDER_FILE" ] && cur_prov=$(cat "$PROVIDER_FILE" | tr -d ' \n\r')
+
+        local proc_alive=false
+        if [ "$cur_prov" = "cloudflare" ]; then
+            pgrep -f "cloudflared.*tunnel" >/dev/null 2>&1 && proc_alive=true
+        else
+            pgrep -f "ssh.*${cur_prov}" >/dev/null 2>&1 && proc_alive=true
+        fi
+
+        if [ "$proc_alive" = false ] || [ -z "$cur_url" ]; then
+            fail_count=$((fail_count + 1))
+            log_msg "Tunnel process not alive or URL missing (fail_count=$fail_count)."
+        elif ! test_tunnel_health "$cur_url"; then
+            fail_count=$((fail_count + 1))
+            log_msg "Tunnel URL health ping failed: ${cur_url} (fail_count=$fail_count)."
+        else
+            fail_count=0
+        fi
+
+        if [ $fail_count -ge 2 ]; then
+            log_msg "2 consecutive tunnel failures detected. Triggering auto-reconnect..."
+            reconnect_cascade "$PREF_PROVIDER"
+            fail_count=0
+        fi
+
+        sleep 20
+    done
+}
+
+case "$1" in
+    "start")
+        # Ensure only one watchdog instance
+        if [ -f "$PID_FILE" ]; then
+            old_pid=$(cat "$PID_FILE" 2>/dev/null)
+            if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+                # Already running
+                [ -f "$URL_FILE" ] && cat "$URL_FILE"
+                exit 0
+            fi
+        fi
+
+        new_url=$(reconnect_cascade "$PREF_PROVIDER")
+        res=$?
+        if command -v setsid >/dev/null 2>&1; then
+            setsid -f "$0" run-watchdog >/dev/null 2>&1
+        else
+            nohup "$0" run-watchdog >/dev/null 2>&1 &
+        fi
+        disown 2>/dev/null || true
+
+        if [ $res -eq 0 ]; then
+            echo "$new_url"
+            exit 0
+        else
+            exit 1
+        fi
+        ;;
+
+    "run-watchdog")
+        watchdog_worker
+        ;;
+
+    "stop")
+        if [ -f "$PID_FILE" ]; then
+            w_pid=$(cat "$PID_FILE" 2>/dev/null)
+            if [ -n "$w_pid" ]; then
+                kill -9 "$w_pid" 2>/dev/null || true
+            fi
+            rm -f "$PID_FILE"
+        fi
+        kill_tunnel_processes
+        rm -f "$URL_FILE" "$ENDPOINT_FILE" "$PROVIDER_FILE"
+        log_msg "Tunnel watchdog and forwarders stopped."
+        exit 0
+        ;;
+
+    "reconnect")
+        log_msg "Manual reconnect triggered."
+        target="$2"
+        [ -z "$target" ] && target="$PREF_PROVIDER"
+        reconnect_cascade "$target"
+        ;;
+
+    "status")
+        echo "=================================================="
+        echo "         WOLA TUNNEL WATCHDOG STATUS"
+        echo "=================================================="
+        if [ -f "$PID_FILE" ]; then
+            w_pid=$(cat "$PID_FILE" 2>/dev/null)
+            if [ -n "$w_pid" ] && kill -0 "$w_pid" 2>/dev/null; then
+                echo "  Watchdog Daemon : RUNNING (PID $w_pid)"
+            else
+                echo "  Watchdog Daemon : STOPPED (stale PID)"
+            fi
+        else
+            echo "  Watchdog Daemon : STOPPED"
+        fi
+
+        if [ -f "$URL_FILE" ]; then
+            echo "  Active URL      : $(cat "$URL_FILE")"
+            echo "  Provider        : $(cat "$PROVIDER_FILE" 2>/dev/null || echo 'Unknown')"
+            echo "  Endpoint        : $(cat "$ENDPOINT_FILE" 2>/dev/null || echo 'Unknown')"
+            echo -n "  Latency Health  : "
+            if test_tunnel_health "$(cat "$URL_FILE")"; then
+                echo "HEALTHY (200 OK)"
+            else
+                echo "UNREACHABLE / DEGRADED"
+            fi
+        else
+            echo "  Active URL      : OFFLINE"
+        fi
+        echo "=================================================="
+        ;;
+
+    *)
+        echo "Usage: wola-tunnel-daemon [start|stop|reconnect|status|run-watchdog]"
+        exit 1
+        ;;
+esac
