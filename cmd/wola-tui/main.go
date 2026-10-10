@@ -237,17 +237,64 @@ func main() {
 			_ = cmd.Run()
 			return
 		case "d", "dash", "dashboard":
+			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+				cmd := exec.Command("wola.d")
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				_ = cmd.Run()
+				return
+			}
 			initialTab = ui.TabDashboard
 		case "c", "chat":
+			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+				cmd := exec.Command("wola.chat", os.Args[2:]...)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				_ = cmd.Run()
+				return
+			}
 			initialTab = ui.TabChat
 		case "m", "model", "models":
+			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+				cmd := exec.Command("wola.m", os.Args[2:]...)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				_ = cmd.Run()
+				return
+			}
 			initialTab = ui.TabModels
 		case "know", "knowledge", "i", "index":
+			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+				cmd := exec.Command("wola.i", os.Args[2:]...)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				_ = cmd.Run()
+				return
+			}
 			initialTab = ui.TabKnowledge
 		case "l", "log", "logs":
+			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+				cmd := exec.Command("wola.log", os.Args[2:]...)
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				_ = cmd.Run()
+				return
+			}
 			initialTab = ui.TabLogs
 		default:
-			// If unknown argument, treat as search or start default dashboard
+			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+				cmd := exec.Command("wola-h")
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				_ = cmd.Run()
+				return
+			}
 		}
 	}
 

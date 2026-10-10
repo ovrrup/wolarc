@@ -1,5 +1,5 @@
 # Paths & Binaries
-LLAMA_BIN="$HOME/llama.cpp/build/bin/llama-server"
+LLAMA_BIN="llama-server"
 MODELS_DIR="$HOME/models"
 KNOWLEDGE_DIR="$HOME/storage/shared/Documents/agent_knowledge"
 CHATS_DIR="$HOME/storage/shared/Documents/agent_chats"

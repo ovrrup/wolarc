@@ -141,6 +141,11 @@ check_dependencies() {
         fi
     fi
 
+    # Auto-include llama-cpp for Termux if missing
+    if [ "$IS_TERMUX" = true ] && ! command -v llama-server >/dev/null 2>&1; then
+        missing+=("llama-cpp")
+    fi
+
     if [ ${#missing[@]} -gt 0 ]; then
         echo -e "  ${C_RED}[-] Missing packages: ${missing[*]}${C_RESET}"
         if [ "$IS_TERMUX" = true ]; then
@@ -176,24 +181,76 @@ check_dependencies() {
         echo -e "  ${C_GREEN}✓ PDF document extractor available (pdftotext)${C_RESET}"
     fi
 
-    # Llama-server detection
+    # Llama-server engine detection & auto-installation
     local llama_path=""
+
+    # Clean up stale/broken symlink if present
+    if [ -L "$TARGET_BIN/llama-server" ] && [ ! -e "$TARGET_BIN/llama-server" ]; then
+        rm -f "$TARGET_BIN/llama-server"
+    fi
+
     if command -v llama-server >/dev/null 2>&1; then
         llama_path=$(command -v llama-server)
-    elif [ -f "$HOME/llama.cpp/build/bin/llama-server" ]; then
+    elif [ -x "$TARGET_BIN/llama-server" ]; then
+        llama_path="$TARGET_BIN/llama-server"
+    elif [ -x "$HOME/llama.cpp/build/bin/llama-server" ]; then
         llama_path="$HOME/llama.cpp/build/bin/llama-server"
         mkdir -p "$TARGET_BIN"
         ln -sf "$llama_path" "$TARGET_BIN/llama-server" 2>/dev/null || true
-    elif [ -f "$TARGET_BIN/llama-server" ]; then
-        llama_path="$TARGET_BIN/llama-server"
+    fi
+
+    # If still not found, download prebuilt binary release
+    if [ -z "$llama_path" ]; then
+        echo -e "  ${C_YELLOW}[*] llama-server not found. Auto-installing prebuilt engine...${C_RESET}"
+        if [ "$IS_TERMUX" = true ]; then
+            echo -e "  [*] Installing llama-cpp via Termux package manager..."
+            pkg install -y llama-cpp >/dev/null 2>&1 || true
+            if command -v llama-server >/dev/null 2>&1; then
+                llama_path=$(command -v llama-server)
+            fi
+        fi
+
+        if [ -z "$llama_path" ]; then
+            local arch
+            arch=$(uname -m)
+            local asset_pattern=""
+            case "$arch" in
+                "x86_64"|"amd64") asset_pattern="llama-.*-bin-ubuntu-x64.tar.gz" ;;
+                "aarch64"|"arm64")
+                    if [ "$IS_TERMUX" = true ]; then
+                        asset_pattern="llama-.*-bin-android-arm64.tar.gz"
+                    else
+                        asset_pattern="llama-.*-bin-ubuntu-arm64.tar.gz"
+                    fi
+                    ;;
+            esac
+
+            if [ -n "$asset_pattern" ]; then
+                echo -e "  [*] Querying official prebuilt binary for ${arch}..."
+                local dl_url
+                dl_url=$(curl -sL "https://api.github.com/repos/ggerganov/llama.cpp/releases?per_page=5" 2>/dev/null | grep "browser_download_url" | grep -E "$asset_pattern" | head -n 1 | cut -d '"' -f 4)
+                if [ -n "$dl_url" ]; then
+                    echo -e "  [*] Downloading prebuilt engine: ${dl_url}..."
+                    local tmp_tar="${TMPDIR:-/tmp}/llama_server_dl.tar.gz"
+                    if curl -sL "$dl_url" -o "$tmp_tar"; then
+                        mkdir -p "$TARGET_BIN"
+                        tar -xzf "$tmp_tar" -C "$TARGET_BIN" --wildcards "*llama-server*" --strip-components=2 2>/dev/null || \
+                        tar -xzf "$tmp_tar" -C "$TARGET_BIN" --wildcards "*llama-server*" --strip-components=1 2>/dev/null || \
+                        tar -xzf "$tmp_tar" -C "$TARGET_BIN" 2>/dev/null || true
+                        rm -f "$tmp_tar"
+                        chmod +x "$TARGET_BIN/llama-server" 2>/dev/null || true
+                        [ -x "$TARGET_BIN/llama-server" ] && llama_path="$TARGET_BIN/llama-server"
+                    fi
+                fi
+            fi
+        fi
     fi
 
     if [ -n "$llama_path" ]; then
-        echo -e "  ${C_GREEN}✓ llama-server found:${C_RESET} ${llama_path}"
+        echo -e "  ${C_GREEN}✓ llama-server verified & ready:${C_RESET} ${llama_path}"
     else
         echo -e "  ${C_YELLOW}⚠ 'llama-server' binary not found.${C_RESET}"
-        echo -e "    ${C_DIM}You can configure LLAMA_BIN later in ~/.wolarc or via 'wola.t LLAMA_BIN <path>'.${C_RESET}"
-        echo -e "    ${C_DIM}Build guide: git clone https://github.com/ggerganov/llama.cpp && cmake -B build && cmake --build build -j4${C_RESET}"
+        echo -e "    ${C_DIM}Run 'pkg install llama-cpp' on Termux or install llama-server into PATH.${C_RESET}"
     fi
 }
 
@@ -569,18 +626,37 @@ set_val('CHATS_DIR', '$chats_dir', '$HOME/.wolarc')
         echo -e "  ${C_GREEN}✓ Preserving existing ~/.wolarc.${C_RESET}"
     fi
 
-    # Save repository source path for auto-updates
+    # Save repository source path for auto-updates & reconcile LLAMA_BIN
     python3 -c "
-import sys, re
+import sys, os, re, shutil
 path = '$HOME/.wolarc'
-with open(path, 'r') as f: lines = f.readlines()
-pat = re.compile(r'^\s*WOLA_SOURCE_DIR=.*$')
-has_it = any(pat.match(l) for l in lines)
-if has_it:
-    lines = [f'WOLA_SOURCE_DIR=\"$DIR\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append(f'WOLA_SOURCE_DIR=\"$DIR\"\n')
-with open(path, 'w') as f: f.writelines(lines)
+if os.path.exists(path):
+    with open(path, 'r') as f: lines = f.readlines()
+    pat = re.compile(r'^\s*WOLA_SOURCE_DIR=.*$')
+    has_it = any(pat.match(l) for l in lines)
+    if has_it:
+        lines = [f'WOLA_SOURCE_DIR=\"$DIR\"\n' if pat.match(l) else l for l in lines]
+    else:
+        lines.append(f'WOLA_SOURCE_DIR=\"$DIR\"\n')
+
+    # Reconcile LLAMA_BIN to verified binary if missing or invalid
+    llama_pat = re.compile(r'^\s*LLAMA_BIN\s*=\s*[\"\'\s]*(.*?)[\"\'\s]*$')
+    llama_val = None
+    for l in lines:
+        m = llama_pat.match(l)
+        if m:
+            llama_val = os.path.expanduser(m.group(1).strip())
+            break
+    if not llama_val or (llama_val != 'llama-server' and not os.path.exists(llama_val)):
+        resolved_bin = 'llama-server' if shutil.which('llama-server') else os.path.join('$TARGET_BIN', 'llama-server')
+        lines = [f'LLAMA_BIN=\"{resolved_bin}\"\n' if llama_pat.match(l) else l for l in lines]
+
+    # Default ENABLE_TUI to true if absent
+    tui_pat = re.compile(r'^\s*ENABLE_TUI=.*$')
+    if not any(tui_pat.match(l) for l in lines):
+        lines.append('ENABLE_TUI=\"true\"\n')
+
+    with open(path, 'w') as f: f.writelines(lines)
 " 2>/dev/null
 }
 
@@ -697,14 +773,20 @@ post_install() {
 
     # Check if models exist in ~/models
     local models_count=$(find "$HOME/models" -maxdepth 1 -name "*.gguf" 2>/dev/null | wc -l)
-    if [ "$models_count" -eq 0 ] && [ "$MODE" = "interactive" ]; then
+    if [ "$models_count" -eq 0 ]; then
         echo -e "\n${C_YELLOW}[!] No GGUF models detected in ~/models.${C_RESET}"
-        read -p "Would you like to launch the Model Store (wola.gt / wola.gh) now to download or import one? (Y/n): " store_ans
-        store_ans=${store_ans:-y}
-        if [[ "$store_ans" =~ ^[Yy] ]]; then
-            exec "$TARGET_BIN/wola.gt"
+        local store_ans="y"
+        if [ "$MODE" = "interactive" ]; then
+            read -p "Would you like to auto-download verified lightweight starter models now? (Y/n): " store_ans
+            store_ans=${store_ans:-y}
         fi
-    elif [ "$MODE" = "interactive" ]; then
+        if [[ "$store_ans" =~ ^[Yy] ]]; then
+            echo -e "  [*] Running automated starter model downloader..."
+            "$TARGET_BIN/wola.gt" --quick-start || python3 "$DIR/bin/wola.gt" --quick-start
+        fi
+    fi
+
+    if [ "$MODE" = "interactive" ]; then
         echo ""
         read -p "Would you like to launch Wolarc TUI (wola) now? (Y/n): " tui_ans
         tui_ans=${tui_ans:-y}

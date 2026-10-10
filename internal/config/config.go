@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -56,10 +57,21 @@ func ExpandHome(path string) string {
 	return os.ExpandEnv(path)
 }
 
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 func DefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
+	defaultLlama := "llama-server"
+	if lp, err := exec.LookPath("llama-server"); err == nil {
+		defaultLlama = lp
+	} else if p := filepath.Join(home, "llama.cpp", "build", "bin", "llama-server"); fileExists(p) {
+		defaultLlama = p
+	}
 	return &Config{
-		LlamaBin:            filepath.Join(home, "llama.cpp", "build", "bin", "llama-server"),
+		LlamaBin:            defaultLlama,
 		ModelsDir:           filepath.Join(home, "models"),
 		KnowledgeDir:        filepath.Join(home, "storage", "shared", "Documents", "agent_knowledge"),
 		ChatsDir:            filepath.Join(home, "storage", "shared", "Documents", "agent_chats"),
@@ -119,7 +131,14 @@ func LoadConfig() *Config {
 
 		switch key {
 		case "LLAMA_BIN":
-			cfg.LlamaBin = ExpandHome(val)
+			expanded := ExpandHome(val)
+			if fileExists(expanded) {
+				cfg.LlamaBin = expanded
+			} else if lp, err := exec.LookPath("llama-server"); err == nil {
+				cfg.LlamaBin = lp
+			} else {
+				cfg.LlamaBin = expanded
+			}
 		case "MODELS_DIR":
 			cfg.ModelsDir = ExpandHome(val)
 		case "KNOWLEDGE_DIR":

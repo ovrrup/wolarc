@@ -65,29 +65,26 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 
 ---
 
-## Quick Start
+## Quick Start (Zero Code Know-How Required) 🚀
 
-### 1. Requirements
+### ⚡ 1-Command Installation
 
-- **Android** with [Termux](https://termux.dev) or any **Linux** environment.
-- Python 3.8+
-- `llama-server` (built from `llama.cpp`)
-- `git`, `curl`, `openssh`
+Just open Termux (Android) or your Linux terminal, copy and paste this command, and press Enter:
 
-Install dependencies in Termux:
-```bash
-pkg update && pkg install python git curl openssh poppler
-pip install -r requirements.txt
-```
-
-### 2. Installation (One-Command Setup)
-
-Install Wolarc and compile the Go TUI automatically with a single command:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ovrrup/wolarc/main/install.sh | bash
 ```
 
-Or clone manually:
+> **What the installer handles automatically for you:**
+> - **Zero-Setup AI Engine**: Automatically installs and configures `llama-server` from default (`pkg install llama-cpp` on Android/Termux, or official prebuilt binary on Linux) — **zero manual compilation required**.
+> - **Automated Dependencies**: Installs Python, Git, Curl, Go, and all required packages.
+> - **Starter Model Acquisition**: Automatically downloads and configures lightweight, 100% free and public starter models (chat & vector embedding).
+> - **Modern Interface**: Compiles the Go Bubble Tea TUI (`wola`) and command shortcuts (`wola.r`, `wola.chat`, `wola.url`).
+
+---
+
+### Manual Clone (Alternative)
+
 ```bash
 git clone https://github.com/ovrrup/wolarc.git
 cd wolarc

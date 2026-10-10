@@ -34,13 +34,6 @@ EMBED_PIPELINES = ["sentence-similarity", "feature-extraction"]
 
 CURATED_CHAT = [
     {
-        "name": "Gemma 2 2B Instruct (Q4_K_M)",
-        "repo": "google/gemma-2-2b-it-GGUF",
-        "file": "2b_it_v2.gguf",
-        "size": "1.6 GB",
-        "desc": "Google's ultra-fast mobile reasoning model"
-    },
-    {
         "name": "Qwen 2.5 1.5B Instruct (Q4_K_M)",
         "repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
         "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
@@ -55,6 +48,13 @@ CURATED_CHAT = [
         "desc": "Ultra-lightweight footprint, minimal RAM usage"
     },
     {
+        "name": "Qwen 2.5 0.5B Instruct (Q4_K_M)",
+        "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+        "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "size": "0.4 GB",
+        "desc": "Ultra-nano footprint for low-memory devices (<3 GB RAM)"
+    },
+    {
         "name": "Phi-4 Mini 3.8B Instruct (Q4_K_M)",
         "repo": "bartowski/Phi-4-mini-instruct-GGUF",
         "file": "Phi-4-mini-instruct-Q4_K_M.gguf",
@@ -65,18 +65,11 @@ CURATED_CHAT = [
 
 CURATED_EMBED = [
     {
-        "name": "Embedding-Gemma 270M (Q8_0)",
-        "repo": "bartowski/embedding-gemma-2-270m-GGUF",
-        "file": "embedding-gemma-2-270m-Q8_0.gguf",
-        "size": "290 MB",
-        "desc": "Native Gemma 256d/512d vector match baseline"
-    },
-    {
-        "name": "BGE-Small English v1.5 (F16)",
-        "repo": "compendiumdev/bge-small-en-v1.5-gguf",
-        "file": "bge-small-en-v1.5-f16.gguf",
-        "size": "67 MB",
-        "desc": "Low-resource retrieval engine with high precision"
+        "name": "All-MiniLM-L6-v2 (Q8_0)",
+        "repo": "second-state/All-MiniLM-L6-v2-Embedding-GGUF",
+        "file": "all-MiniLM-L6-v2-Q8_0.gguf",
+        "size": "45 MB",
+        "desc": "Ultra-compact, ultra-fast vector retrieval engine"
     },
     {
         "name": "Nomic Embed Text v1.5 (Q8_0)",
@@ -84,6 +77,13 @@ CURATED_EMBED = [
         "file": "nomic-embed-text-v1.5.Q8_0.gguf",
         "size": "145 MB",
         "desc": "8k long-context document embedding model"
+    },
+    {
+        "name": "Embedding-Gemma 270M (Q8_0)",
+        "repo": "bartowski/embedding-gemma-2-270m-GGUF",
+        "file": "embedding-gemma-2-270m-Q8_0.gguf",
+        "size": "290 MB",
+        "desc": "Native Gemma 256d/512d vector match baseline"
     }
 ]
 
@@ -149,7 +149,7 @@ def verify_security(repo_id, filename, pipeline_tag, intended_type):
             return confirm == "y"
     return True
 
-def assess_ram_safety(file_size_bytes):
+def assess_ram_safety(file_size_bytes, non_interactive=False):
     if not file_size_bytes:
         return True
     _, avail_mb = get_ram_info()
@@ -160,12 +160,14 @@ def assess_ram_safety(file_size_bytes):
     if needed_mb > avail_mb:
         print(f"\n{C_RED}[RAM WARNING]{C_RESET} This model requires ~{needed_mb:.0f} MB RAM.")
         print(f"Your device only has {avail_mb} MB available right now.")
+        if non_interactive or not sys.stdin.isatty():
+            return True
         confirm = input(f"{C_BOLD}Proceed with download anyway? (y/N): {C_RESET}").strip().lower()
         if confirm != "y":
             return False
     return True
 
-def download_file(url, target_filename, file_size=None):
+def download_file(url, target_filename, file_size=None, non_interactive=False):
     dest_path = os.path.join(MODELS_DIR, target_filename)
     downloaded_existing = 0
 
@@ -176,14 +178,17 @@ def download_file(url, target_filename, file_size=None):
             return dest_path
         elif downloaded_existing > 0:
             print(f"{C_YELLOW}[*] Incomplete download found ({format_bytes(downloaded_existing)}).{C_RESET}")
-            ans = input("Resume download [r], Overwrite [o], or Cancel [c]? (R/o/c): ").strip().lower()
+            if non_interactive or not sys.stdin.isatty():
+                ans = "r"
+            else:
+                ans = input("Resume download [r], Overwrite [o], or Cancel [c]? (R/o/c): ").strip().lower()
             if ans in ["c", "cancel"]:
                 return None
             elif ans in ["o", "overwrite"]:
                 os.remove(dest_path)
                 downloaded_existing = 0
 
-    if file_size and not assess_ram_safety(file_size):
+    if file_size and not assess_ram_safety(file_size, non_interactive=non_interactive):
         return None
 
     headers = {}
@@ -530,14 +535,77 @@ def menu_import_local(initial_path=None):
     else:
         print(f"{C_GREEN}[+] Model is ready in {MODELS_DIR}! Activate later with 'wola.m chat {filename}'{C_RESET}")
 
+def quick_start_models():
+    print(f"\n{C_CYAN}================================================================={C_RESET}")
+    print(f"       {C_BOLD}WOLARC AUTOMATED STARTER MODEL ACQUISITION ENGINE{C_RESET}")
+    print(f"{C_CYAN}================================================================={C_RESET}")
+
+    existing_ggufs = [f for f in os.listdir(MODELS_DIR) if f.lower().endswith(".gguf")] if os.path.exists(MODELS_DIR) else []
+    chat_found = None
+    embed_found = None
+
+    for g in existing_ggufs:
+        glow = g.lower()
+        if ("embed" in glow or "minilm" in glow or "bge" in glow or "nomic" in glow) and not embed_found:
+            embed_found = g
+        elif ("embed" not in glow and "minilm" not in glow and "bge" not in glow and "nomic" not in glow) and not chat_found:
+            chat_found = g
+
+    # 1. Embedding Model
+    if embed_found:
+        print(f"  {C_GREEN}✓ Active embedding model detected:{C_RESET} {embed_found}")
+        apply_to_config(embed_found, "embed", prompt_confirm=False)
+    else:
+        starter_embed = CURATED_EMBED[0]  # All-MiniLM-L6-v2 (45 MB)
+        print(f"\n  [*] Downloading starter embedding model: {starter_embed['name']} ({starter_embed['size']})...")
+        embed_url = f"https://huggingface.co/{starter_embed['repo']}/resolve/main/{starter_embed['file']}"
+        dest = download_file(embed_url, starter_embed['file'], non_interactive=True)
+        if dest and os.path.exists(dest):
+            apply_to_config(starter_embed['file'], "embed", prompt_confirm=False)
+            embed_found = starter_embed['file']
+        else:
+            print(f"  {C_RED}[-] Failed to download embedding model.{C_RESET}")
+
+    # 2. Chat Model
+    if chat_found:
+        print(f"  {C_GREEN}✓ Active chat model detected:{C_RESET} {chat_found}")
+        apply_to_config(chat_found, "chat", prompt_confirm=False)
+    else:
+        tot_ram, avail_ram = get_ram_info()
+        starter_chat = CURATED_CHAT[1]  # Llama 3.2 1B
+        if 0 < avail_ram < 2000:
+            starter_chat = CURATED_CHAT[2]  # Qwen 2.5 0.5B
+
+        print(f"\n  [*] Downloading starter chat model: {starter_chat['name']} ({starter_chat['size']})...")
+        chat_url = f"https://huggingface.co/{starter_chat['repo']}/resolve/main/{starter_chat['file']}"
+        dest = download_file(chat_url, starter_chat['file'], non_interactive=True)
+        if dest and os.path.exists(dest):
+            apply_to_config(starter_chat['file'], "chat", prompt_confirm=False)
+            chat_found = starter_chat['file']
+        else:
+            print(f"  {C_RED}[-] Failed to download chat model.{C_RESET}")
+
+    if embed_found and chat_found:
+        print(f"\n{C_CYAN}================================================================={C_RESET}")
+        print(f"  {C_GREEN}✓ STARTER MODELS CONFIGURED SUCCESSFULLY!{C_RESET}")
+        print(f"    • Chat LLM  : {chat_found}")
+        print(f"    • Embed LLM : {embed_found}")
+        print(f"  Run '{C_BOLD}wola.r{C_RESET}' or '{C_BOLD}wola{C_RESET}' to start inference services.")
+        print(f"{C_CYAN}================================================================={C_RESET}\n")
+        return True
+    return False
+
 def main():
     if len(sys.argv) > 1:
-        arg = sys.argv[1]
-        if arg in ["import", "add"] and len(sys.argv) > 2:
+        arg = sys.argv[1].lower()
+        if arg in ["--quick-start", "-quick-start", "quick-start", "--starter", "starter"]:
+            success = quick_start_models()
+            sys.exit(0 if success else 1)
+        elif arg in ["import", "add"] and len(sys.argv) > 2:
             menu_import_local(sys.argv[2])
             return
-        elif os.path.exists(os.path.expanduser(arg)):
-            menu_import_local(arg)
+        elif os.path.exists(os.path.expanduser(sys.argv[1])):
+            menu_import_local(sys.argv[1])
             return
 
     while True:

@@ -126,28 +126,36 @@ On standard Linux distributions:
 
 Wolarc uses `llama-server` from the [`llama.cpp`](https://github.com/ggerganov/llama.cpp) project as its high-speed C/C++ inference engine.
 
-### Option 1: Build from Source (Recommended for Termux / Linux)
-Building on your device compiles with your exact CPU architecture instructions (NEON, AVX2, etc.):
+### Automatic Installation (Default — Zero Manual Steps)
+The Wolarc installer (`install.sh`) **automatically installs and configures `llama-server` for you**:
+- On **Android / Termux**: It automatically runs `pkg install llama-cpp`, installing the official high-performance prebuilt engine in seconds.
+- On **Linux**: It automatically queries and downloads the latest official prebuilt binary for your architecture (`x86_64` or `aarch64`).
+- **You do not need to compile anything manually.**
 
+### Manual Installation (If Preferred)
+
+#### Method A: Termux Package Manager (Fastest for Android)
+```bash
+pkg update && pkg install -y llama-cpp
+```
+
+#### Method B: Build from Source (Optional for Custom Compiles)
+Advanced users who want custom compiler flags (NEON, AVX2, OpenBLAS):
 ```bash
 cd ~
 git clone https://github.com/ggerganov/llama.cpp
 cd llama.cpp
 cmake -B build -DGGML_OPENMP=OFF
 cmake --build build --config Release -j4 --target llama-server
-```
 
-Once built, symlink the binary into your PATH:
-```bash
+# Symlink to PATH:
 # On Termux:
 cp build/bin/llama-server $PREFIX/bin/llama-server
-
 # On Linux:
-mkdir -p ~/.local/bin
-cp build/bin/llama-server ~/.local/bin/llama-server
+mkdir -p ~/.local/bin && cp build/bin/llama-server ~/.local/bin/llama-server
 ```
 
-Test that the binary is available:
+Verify that the binary is available:
 ```bash
 llama-server --version
 ```

@@ -22,16 +22,32 @@ is_tui_enabled() {
 }
 
 find_binary() {
-    if [ -n "$LLAMA_BIN" ] && [ -x "$LLAMA_BIN" ]; then
-        echo "$LLAMA_BIN"
-        return
+    if [ -n "$LLAMA_BIN" ]; then
+        if [ -x "$LLAMA_BIN" ]; then
+            echo "$LLAMA_BIN"
+            return
+        fi
+        if command -v "$LLAMA_BIN" >/dev/null 2>&1; then
+            command -v "$LLAMA_BIN"
+            return
+        fi
     fi
     if command -v llama-server >/dev/null 2>&1; then
         command -v llama-server
         return
     fi
+    for c in "${PREFIX:-/data/data/com.termux/files/usr}/bin/llama-server" \
+             "$HOME/.local/bin/llama-server" \
+             "/usr/local/bin/llama-server" \
+             "/usr/bin/llama-server" \
+             "$HOME/llama.cpp/build/bin/llama-server"; do
+        if [ -x "$c" ]; then
+            echo "$c"
+            return
+        fi
+    done
     local b
-    b=$(find "$HOME" -maxdepth 4 -name "llama-server" -type f 2>/dev/null | head -n 1)
+    b=$(find "$HOME" -maxdepth 4 -name "llama-server" -type f -perm -111 2>/dev/null | head -n 1)
     if [ -n "$b" ]; then
         echo "$b"
         return
@@ -42,16 +58,21 @@ find_binary() {
 wait_for_service() {
     local url="$1"
     local name="$2"
-    local max_tries=25
+    local pattern="$3"
+    local max_tries=35
     local count=0
     
     echo -n -e "[*] Booting ${C_YELLOW}${name}${C_RESET} "
     while ! curl -s -f "$url" >/dev/null 2>&1; do
+        if [ -n "$pattern" ] && ! pgrep -f "$pattern" >/dev/null 2>&1; then
+            echo -e " ${C_RED}CRASHED (Process not running)${C_RESET}"
+            return 1
+        fi
         sleep 1
         count=$((count + 1))
         echo -n "."
         if [ $count -ge $max_tries ]; then
-            echo -e " ${C_RED}FAILED${C_RESET}"
+            echo -e " ${C_RED}FAILED (timeout after ${max_tries}s)${C_RESET}"
             return 1
         fi
     done
@@ -68,8 +89,16 @@ start_node() {
 
     BIN=$(find_binary)
     if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
+        echo -e "${C_YELLOW}[!] 'llama-server' binary not found. Attempting automatic installation...${C_RESET}"
+        if [ -d "/data/data/com.termux/files/usr/bin" ]; then
+            echo -e "    [*] Installing llama-cpp via Termux package manager..."
+            pkg install -y llama-cpp >/dev/null 2>&1 || true
+        fi
+        BIN=$(find_binary)
+    fi
+    if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
         echo -e "${C_RED}[-] Error: 'llama-server' binary not found or not executable.${C_RESET}"
-        echo "    Set LLAMA_BIN directly via: wola.t LLAMA_BIN /path/to/llama-server"
+        echo "    Install with: pkg install llama-cpp (Termux) or configure LLAMA_BIN in ~/.wolarc"
         exit 1
     fi
 
@@ -81,12 +110,38 @@ start_node() {
         CHAT_MODEL=$(find "$MODELS_DIR" -maxdepth 1 -iname "*.gguf" ! -iname "*embed*" ! -iname "*bge*" ! -iname "*nomic*" ! -iname "*minilm*" 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
     fi
 
+    if [ ! -f "$MODELS_DIR/$EMBED_MODEL" ] || [ ! -f "$MODELS_DIR/$CHAT_MODEL" ]; then
+        echo -e "${C_YELLOW}[!] Active models not found in $MODELS_DIR.${C_RESET}"
+        local do_quickstart="y"
+        if [ -t 0 ]; then
+            read -p "    Download and configure recommended starter models now? (Y/n): " do_quickstart
+            do_quickstart=${do_quickstart:-y}
+        fi
+        if [[ "$do_quickstart" =~ ^[Yy] ]]; then
+            if command -v wola.gt >/dev/null 2>&1; then
+                wola.gt --quick-start
+            else
+                m_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+                python3 "$m_dir/wola.gt" --quick-start 2>/dev/null || python3 "$HOME/wola/bin/wola.gt" --quick-start
+            fi
+            [ -f "$CONFIG" ] && source "$CONFIG"
+            if [ -z "$EMBED_MODEL" ]; then
+                EMBED_MODEL=$(find "$MODELS_DIR" -maxdepth 1 \( -iname "*embed*.gguf" -o -iname "*bge*.gguf" -o -iname "*nomic*.gguf" -o -iname "*minilm*.gguf" \) 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
+            fi
+            if [ -z "$CHAT_MODEL" ]; then
+                CHAT_MODEL=$(find "$MODELS_DIR" -maxdepth 1 -iname "*.gguf" ! -iname "*embed*" ! -iname "*bge*" ! -iname "*nomic*" ! -iname "*minilm*" 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
+            fi
+        fi
+    fi
+
     if [ ! -f "$MODELS_DIR/$EMBED_MODEL" ]; then
         echo -e "${C_RED}[-] Error: Embedding model not found: $MODELS_DIR/$EMBED_MODEL${C_RESET}"
+        echo "    Run 'wola.gt' or 'wola store' to download an embedding model."
         exit 1
     fi
     if [ ! -f "$MODELS_DIR/$CHAT_MODEL" ]; then
         echo -e "${C_RED}[-] Error: Chat model not found: $MODELS_DIR/$CHAT_MODEL${C_RESET}"
+        echo "    Run 'wola.gt' or 'wola store' to download a chat model."
         exit 1
     fi
 
@@ -107,40 +162,43 @@ start_node() {
     command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
     echo -e "${C_GREEN}[*] Initializing Wola AI Node Engine (Flash-Attn: ${FLASH_ATTENTION:-auto}, Threads: ${CHAT_THREADS})...${C_RESET}"
 
-    "$BIN" -m "$MODELS_DIR/$EMBED_MODEL" \
+    local runner="nohup"
+    command -v setsid >/dev/null 2>&1 && runner="setsid -f"
+
+    $runner "$BIN" -m "$MODELS_DIR/$EMBED_MODEL" \
            --embeddings \
            --host 127.0.0.1 \
-           -c "${EMBED_CTX:-2048}" -b 2048 -ub 2048 \
+           -c "${EMBED_CTX:-2048}" -b "${EMBED_BATCH:-512}" -ub "${EMBED_BATCH:-512}" \
            -t "$EMBED_THREADS" \
            $FLASH_FLAG $MLOCK_FLAG \
            --port "${EMBED_PORT:-8081}" > "$HOME/embed.log" 2>&1 &
 
-    "$BIN" -m "$MODELS_DIR/$CHAT_MODEL" \
+    $runner "$BIN" -m "$MODELS_DIR/$CHAT_MODEL" \
            --host 127.0.0.1 \
            -c "${CHAT_CTX:-4096}" -b 512 -np "${CHAT_PARALLEL:-2}" \
            -t "$CHAT_THREADS" \
            $FLASH_FLAG $MLOCK_FLAG \
            --port "${CHAT_PORT:-8080}" > "$HOME/chat.log" 2>&1 &
 
-    if ! wait_for_service "http://127.0.0.1:${EMBED_PORT:-8081}/health" "Embedding Engine (8081)"; then
+    if ! wait_for_service "http://127.0.0.1:${EMBED_PORT:-8081}/health" "Embedding Engine (8081)" "llama-server.*${EMBED_PORT:-8081}"; then
         echo -e "${C_RED}[-] Embedding server failed to start.${C_RESET}"
         tail -n 10 "$HOME/embed.log"
         stop_node
         exit 1
     fi
 
-    if ! wait_for_service "http://127.0.0.1:${CHAT_PORT:-8080}/health" "Chat LLM Engine (8080)"; then
+    if ! wait_for_service "http://127.0.0.1:${CHAT_PORT:-8080}/health" "Chat LLM Engine (8080)" "llama-server.*${CHAT_PORT:-8080}"; then
         echo -e "${C_RED}[-] Chat server failed to start.${C_RESET}"
         tail -n 10 "$HOME/chat.log"
         stop_node
         exit 1
     fi
 
-    nohup python3 "$HOME/indexer.py" > "$HOME/indexer.log" 2>&1 &
-    nohup python3 "$HOME/agent.py" > "$HOME/agent.log" 2>&1 &
+    $runner python3 "$HOME/indexer.py" > "$HOME/indexer.log" 2>&1 &
+    $runner python3 "$HOME/agent.py" > "$HOME/agent.log" 2>&1 &
 
     local port="${AGENT_PORT:-5000}"
-    if ! wait_for_service "http://127.0.0.1:${port}/health" "Agent API Gateway (${port})"; then
+    if ! wait_for_service "http://127.0.0.1:${port}/health" "Agent API Gateway (${port})" "agent.py"; then
         echo -e "${C_RED}[-] Agent gateway failed to launch.${C_RESET}"
         tail -n 10 "$HOME/agent.log"
         stop_node
@@ -161,7 +219,7 @@ start_node() {
         rm -f "$HOME/tunnel.log"
         case "$p" in
             "localhost.run")
-                nohup ssh -o StrictHostKeyChecking=no \
+                $runner ssh -o StrictHostKeyChecking=no \
                           -o ServerAliveInterval=10 \
                           -o ServerAliveCountMax=3 \
                           -o TCPKeepAlive=yes \
@@ -172,7 +230,7 @@ start_node() {
                           nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
                 ;;
             "serveo")
-                nohup ssh -o StrictHostKeyChecking=no \
+                $runner ssh -o StrictHostKeyChecking=no \
                           -o ServerAliveInterval=10 \
                           -o ServerAliveCountMax=3 \
                           -o TCPKeepAlive=yes \
@@ -183,7 +241,7 @@ start_node() {
                           serveo.net > "$HOME/tunnel.log" 2>&1 &
                 ;;
             "pinggy")
-                nohup ssh -o StrictHostKeyChecking=no \
+                $runner ssh -o StrictHostKeyChecking=no \
                           -o ServerAliveInterval=10 \
                           -o ServerAliveCountMax=3 \
                           -o TCPKeepAlive=yes \
@@ -217,6 +275,8 @@ start_node() {
         pkill -9 -f "ssh.*$p" 2>/dev/null
     done
     echo ""
+
+    disown -a 2>/dev/null || true
 
     if [ -n "$TUNNEL_URL" ]; then
         echo "$TUNNEL_URL" > "$HOME/.wola_url"

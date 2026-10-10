@@ -106,17 +106,17 @@ vectors = []
 metadata = []
 dim = q_norm.size
 
-def get_icon(fn, ftype=""):
-    if ftype == "conversation" or os.path.basename(fn).startswith("chat_"):
-        return "💬"
+def get_icon(fn, ftype=''):
+    if ftype == 'conversation' or os.path.basename(fn).startswith('chat_'):
+        return '💬'
     e = os.path.splitext(fn)[1].lower()
-    if e in [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".opus", ".aac"]: return "🎵"
-    if e in [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"]: return "🎬"
-    if e in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"]: return "🖼️"
-    if e in [".py", ".go", ".rs", ".js", ".ts", ".sh", ".json", ".yaml"]: return "💻"
-    if e in [".pdf", ".docx", ".epub", ".rtf", ".odt"]: return "📕"
-    if e in [".pptx", ".xlsx", ".csv", ".tsv"]: return "📊"
-    return "📄"
+    if e in ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.opus', '.aac']: return '🎵'
+    if e in ['.mp4', '.mkv', '.mov', '.avi', '.webm', '.flv']: return '🎬'
+    if e in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg']: return '🖼️'
+    if e in ['.py', '.go', '.rs', '.js', '.ts', '.sh', '.json', '.yaml']: return '💻'
+    if e in ['.pdf', '.docx', '.epub', '.rtf', '.odt']: return '📕'
+    if e in ['.pptx', '.xlsx', '.csv', '.tsv']: return '📊'
+    return '📄'
 
 for fpath, fdata in db.items():
     fname = fdata.get('filename', os.path.basename(fpath))
@@ -140,9 +140,11 @@ for rank, idx in enumerate(top_idx, 1):
     item = metadata[idx]
     pct = score * 100
     color = '\033[1;32m' if score >= 0.65 else '\033[1;33m'
-    icon = get_icon(item['name'], item.get('type', ''))
-    print(f'  {rank}. {icon} [{item["name"]}] Match: {color}{pct:.1f}%\033[0m')
-    snippet = item['text'][:220].replace('\n', ' ')
+    m_name = item.get('name', '')
+    m_type = item.get('type', '')
+    icon = get_icon(m_name, m_type)
+    print(f'  {rank}. {icon} [{m_name}] Match: {color}{pct:.1f}%\033[0m')
+    snippet = item.get('text', '')[:220].replace('\n', ' ')
     print(f'     \033[2m\"{snippet}...\"\033[0m\n')
 print('=================================================================')
 " "$QUERY" "$DB_FILE" "${EMBED_PORT:-8081}"

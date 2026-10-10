@@ -1119,7 +1119,15 @@ if __name__ == "__main__":
     init_cfg = load_cfg()
     port = int(init_cfg["AGENT_PORT"])
     try:
+        import tempfile
         from gunicorn.app.base import BaseApplication
+
+        tmp_dir = os.environ.get("TMPDIR", tempfile.gettempdir())
+        if not os.path.exists(tmp_dir) or not os.access(tmp_dir, os.W_OK):
+            tmp_dir = tempfile.gettempdir()
+        if not os.path.exists(tmp_dir) or not os.access(tmp_dir, os.W_OK):
+            tmp_dir = os.path.expanduser("~")
+
         class StandaloneGunicorn(BaseApplication):
             def __init__(self, app, options=None):
                 self.options = options or {}
@@ -1143,6 +1151,7 @@ if __name__ == "__main__":
             "workers": 1,
             "threads": 8,
             "worker_class": "gthread",
+            "worker_tmp_dir": tmp_dir,
             "timeout": 300,
             "graceful_timeout": 5,
             "accesslog": None,
