@@ -532,6 +532,9 @@ deploy_binaries() {
     ln -sf "$TARGET_BIN/wola.bench" "$TARGET_BIN/wola.b"
     ln -sf "$TARGET_BIN/wola.log" "$TARGET_BIN/wola.logs"
     ln -sf "$TARGET_BIN/wola.gt" "$TARGET_BIN/wola.gh"
+    ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.destroy"
+    ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.selfdestruct"
+    ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.nuke"
 
     # Install Go Bubble Tea TUI binary if pre-built or present
     if [ -f "$DIR/dist/wola-tui" ]; then

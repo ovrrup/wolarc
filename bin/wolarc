@@ -301,6 +301,13 @@ case "$INVOCATION" in
     "wola.i")  shift; exec "$PREFIX/bin/wola.i" "$@" ;;
     "wola.gt"|"wola.gh") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
     "wola.u")  shift; exec "$PREFIX/bin/wola.u" "$@" ;;
+    "wola.purge"|"wola.destroy"|"wola.selfdestruct"|"wola.nuke")
+        shift 2>/dev/null || true
+        TARGET_PURGE="${PREFIX:-/data/data/com.termux/files/usr}/bin/wola.purge"
+        [ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="$(dirname "$0")/wola.purge"
+        [ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="wola.purge"
+        exec "$TARGET_PURGE" "$@"
+        ;;
     "wola-h"|"wola.h") exec "$PREFIX/bin/wola-h" ;;
     *)
         case "$1" in
@@ -318,6 +325,13 @@ case "$INVOCATION" in
             "i"|"index")       shift; exec "$PREFIX/bin/wola.i" "$@" ;;
             "gt"|"gh"|"store") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
             "u"|"update"|"upgrade") shift; exec "$PREFIX/bin/wola.u" "$@" ;;
+            "purge"|"destroy"|"selfdestruct"|"nuke")
+                shift
+                TARGET_PURGE="${PREFIX:-/data/data/com.termux/files/usr}/bin/wola.purge"
+                [ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="$(dirname "$0")/wola.purge"
+                [ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="wola.purge"
+                exec "$TARGET_PURGE" "$@"
+                ;;
             "status")          status_node ;;
             *)
                 echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"

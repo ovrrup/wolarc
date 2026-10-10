@@ -1,0 +1,272 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -e
+
+# ANSI Colors
+C_RESET="\033[0m"
+C_BOLD="\033[1m"
+C_DIM="\033[2m"
+C_RED="\033[1;31m"
+C_GREEN="\033[1;32m"
+C_YELLOW="\033[1;33m"
+C_CYAN="\033[1;36m"
+C_MAGENTA="\033[1;35m"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
+
+# Detect environment and default paths
+if [ -d "/data/data/com.termux/files/usr/bin" ]; then
+    IS_TERMUX=true
+    TARGET_BIN="${PREFIX:-/data/data/com.termux/files/usr}/bin"
+    DEFAULT_KNOWLEDGE="$HOME/storage/shared/Documents/agent_knowledge"
+else
+    IS_TERMUX=false
+    TARGET_BIN="${HOME}/.local/bin"
+    [ -w "/usr/local/bin" ] && TARGET_BIN="/usr/local/bin"
+    DEFAULT_KNOWLEDGE="$HOME/Documents/agent_knowledge"
+fi
+
+# Load existing configuration if present to retrieve configured custom paths
+CONFIG="$HOME/.wolarc"
+MODELS_DIR="$HOME/models"
+KNOWLEDGE_DIR="$DEFAULT_KNOWLEDGE"
+WOLA_SOURCE_DIR="$REPO_DIR"
+
+if [ -f "$CONFIG" ]; then
+    cfg_models=$(grep -E '^\s*MODELS_DIR=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
+    [ -n "$cfg_models" ] && MODELS_DIR=$(eval echo "$cfg_models")
+
+    cfg_knowledge=$(grep -E '^\s*KNOWLEDGE_DIR=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
+    [ -n "$cfg_knowledge" ] && KNOWLEDGE_DIR=$(eval echo "$cfg_knowledge")
+
+    cfg_source=$(grep -E '^\s*WOLA_SOURCE_DIR=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
+    [ -n "$cfg_source" ] && WOLA_SOURCE_DIR=$(eval echo "$cfg_source")
+fi
+
+LEVEL=""
+FORCE=false
+PURGE_REPO=false
+
+show_help() {
+    echo -e "${C_BOLD}Wola AI Node - Cleanup & Self-Destruct Purge Utility${C_RESET}"
+    echo ""
+    echo -e "Usage: $(basename "$0") [OPTIONS] [LEVEL]"
+    echo ""
+    echo "Hardness Levels:"
+    echo "  1, --soft, --level 1     Level 1: Soft (Default)"
+    echo "                           Deletes all Wolarc system files, binaries, configs, locks & logs."
+    echo "                           PRESERVES: Downloaded models, vector DB, and knowledge notes."
+    echo ""
+    echo "  2, --medium, --level 2   Level 2: Medium"
+    echo "                           Deletes all Wolarc system files PLUS downloaded models (~/models)"
+    echo "                           and vector database (knowledge_db.json)."
+    echo "                           PRESERVES: User knowledge notes directory."
+    echo ""
+    echo "  3, --hard, --nuclear     Level 3: Hard / Complete Self-Destruction"
+    echo "                           Irreversibly erases EVERYTHING: system files, binaries, models,"
+    echo "                           vector database, AND user knowledge notes directory."
+    echo ""
+    echo "Options:"
+    echo "  -y, --yes, --force       Non-interactive execution (skip confirmation prompts)"
+    echo "  --purge-repo             Also remove the cloned repository folder (enabled by default in Level 3)"
+    echo "  -h, --help               Display this help reference"
+    exit 0
+}
+
+# Parse CLI arguments
+while [ $# -gt 0 ]; do
+    case "$1" in
+        "1"|"-1"|"--soft"|"--level=1") LEVEL="1" ;;
+        "2"|"-2"|"--medium"|"--level=2") LEVEL="2" ;;
+        "3"|"-3"|"--hard"|"--nuclear"|"--level=3") LEVEL="3" ;;
+        "--level")
+            shift
+            case "$1" in
+                "1"|"soft") LEVEL="1" ;;
+                "2"|"medium") LEVEL="2" ;;
+                "3"|"hard"|"nuclear") LEVEL="3" ;;
+                *) echo -e "${C_RED}Error: Invalid level '$1'. Choose 1, 2, or 3.${C_RESET}"; exit 1 ;;
+            esac
+            ;;
+        "-y"|"--yes"|"--force") FORCE=true ;;
+        "--purge-repo") PURGE_REPO=true ;;
+        "-h"|"--help") show_help ;;
+        *)
+            echo -e "${C_RED}Error: Unknown argument '$1'. Run with --help for options.${C_RESET}"
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+# If level not specified on CLI, display interactive menu
+if [ -z "$LEVEL" ]; then
+    echo -e "${C_CYAN}╔══════════════════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}       ${C_BOLD}WOLARC SYSTEM PURGE & SELF-DESTRUCT CONTROLLER${C_RESET}             ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}╠══════════════════════════════════════════════════════════════════╣${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET} Select deletion hardness level:                                  ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║                                                                  ║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}  ${C_BOLD}[1] Level 1 (Soft / Standard Cleanup)${C_RESET}                           ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}      • Erases all Wolarc binaries, configs, locks, daemons & logs${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}      ${C_GREEN}✓ PRESERVED: Models (~/models), Vector DB & Knowledge notes${C_RESET} ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║                                                                  ║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}  ${C_BOLD}[2] Level 2 (Medium Cleanup)${C_RESET}                                    ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}      • Erases all Level 1 items                                   ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}      • ${C_RED}ERASES: Downloaded models (~/models) & Vector DB${C_RESET}           ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}      ${C_GREEN}✓ PRESERVED: User raw knowledge notes directory${C_RESET}             ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║                                                                  ║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}  ${C_BOLD}[3] Level 3 (Hard / Nuclear / Complete Self-Destruction)${C_RESET}        ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}      • ${C_RED}PERMANENTLY ERASES EVERYTHING WITHOUT A TRACE!${C_RESET}             ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}      • ${C_RED}ERASES: Binaries, configs, logs, models, vector DB,${C_RESET}        ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}      • ${C_RED}AND user knowledge notes directory completely!${C_RESET}            ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}║                                                                  ║${C_RESET}"
+    echo -e "${C_CYAN}║${C_RESET}  ${C_DIM}[0] Cancel / Exit${C_RESET}                                              ${C_CYAN}║${C_RESET}"
+    echo -e "${C_CYAN}╚══════════════════════════════════════════════════════════════════╝${C_RESET}"
+    echo ""
+    read -p "Select deletion hardness level [1/2/3/0]: " choice
+    case "$choice" in
+        "1") LEVEL="1" ;;
+        "2") LEVEL="2" ;;
+        "3") LEVEL="3" ;;
+        *) echo "Cleanup aborted."; exit 0 ;;
+    esac
+fi
+
+# Confirmation gate
+if [ "$FORCE" = false ]; then
+    echo ""
+    if [ "$LEVEL" = "1" ]; then
+        echo -e "${C_YELLOW}Level 1 selected: All Wolarc binaries, configs, and logs will be removed.${C_RESET}"
+        echo -e "${C_GREEN}Models, vector database, and knowledge files will remain untouched.${C_RESET}"
+        read -p "Are you sure you want to proceed? (y/N): " conf
+        if [[ ! "$conf" =~ ^[Yy] ]]; then
+            echo "Operation cancelled."
+            exit 0
+        fi
+    elif [ "$LEVEL" = "2" ]; then
+        echo -e "${C_YELLOW}Level 2 selected: All Wolarc files, models in $MODELS_DIR, and vector databases will be DELETED.${C_RESET}"
+        echo -e "${C_GREEN}Knowledge folder ($KNOWLEDGE_DIR) will be preserved.${C_RESET}"
+        read -p "Type 'CONFIRM' to proceed with Medium cleanup: " conf
+        if [ "$conf" != "CONFIRM" ] && [ "$conf" != "confirm" ]; then
+            echo "Confirmation mismatch. Operation cancelled."
+            exit 0
+        fi
+    elif [ "$LEVEL" = "3" ]; then
+        echo -e "${C_RED}╔══════════════════════════════════════════════════════════════════╗${C_RESET}"
+        echo -e "${C_RED}║                     ⚠️  EXTREME WARNING                          ║${C_RESET}"
+        echo -e "${C_RED}║  Level 3 / Self-Destruct will permanently erase ALL files:       ║${C_RESET}"
+        echo -e "${C_RED}║  • System binaries, symlinks, configs, logs, locks               ║${C_RESET}"
+        echo -e "${C_RED}║  • Downloaded models: $MODELS_DIR                                ║${C_RESET}"
+        echo -e "${C_RED}║  • Vector database:   $HOME/knowledge_db.json                    ║${C_RESET}"
+        echo -e "${C_RED}║  • KNOWLEDGE FOLDER:  $KNOWLEDGE_DIR                             ║${C_RESET}"
+        echo -e "${C_RED}║  THIS ACTION IS IRREVERSIBLE AND CANNOT BE UNDONE!              ║${C_RESET}"
+        echo -e "${C_RED}╚══════════════════════════════════════════════════════════════════╝${C_RESET}"
+        read -p "Type 'SELF-DESTRUCT' or 'CONFIRM' to execute complete erasure: " conf
+        if [ "$conf" != "SELF-DESTRUCT" ] && [ "$conf" != "CONFIRM" ] && [ "$conf" != "self-destruct" ]; then
+            echo "Confirmation mismatch. Self-destruct cancelled."
+            exit 0
+        fi
+        PURGE_REPO=true
+    fi
+fi
+
+echo -e "\n${C_BOLD}${C_RED}[*] Initiating Wolarc Deletion sequence (Level $LEVEL)...${C_RESET}"
+
+# 1. Terminate all active processes
+echo -e "  • Stopping active services..."
+pkill -9 -f "llama-server" 2>/dev/null || true
+pkill -9 -f "agent.py" 2>/dev/null || true
+pkill -9 -f "indexer.py" 2>/dev/null || true
+pkill -9 -f "ssh.*(localhost.run|serveo.net|pinggy.io)" 2>/dev/null || true
+pkill -9 -f "wola-tui" 2>/dev/null || true
+command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
+sleep 1
+
+# 2. Remove runtime locks, state, caches, metrics
+echo -e "  • Removing runtime state, locks, and cache files..."
+rm -f "$HOME/.wola.lock"
+rm -f "$HOME/.wola_url"
+rm -f "$HOME/.wola_endpoint"
+rm -f "$HOME/.wola_provider"
+rm -f "$HOME/.wola_metrics.json"
+rm -f "$HOME/.wola_update_cache.json"
+rm -f "$HOME/.wola_bench_cache.json"
+rm -f "$HOME/.wola_version"
+rm -f "$HOME/.wola_thinking.log"
+rm -f "$HOME/.wola_tuner.log"
+rm -f "$HOME"/.wola* 2>/dev/null || true
+
+# 3. Remove log files
+echo -e "  • Removing log files..."
+rm -f "$HOME/chat.log" "$HOME/embed.log" "$HOME/agent.log" "$HOME/tunnel.log" "$HOME/indexer.log"
+rm -f "$HOME/llama_chat.log" "$HOME/llama_embed.log"
+
+# 4. Remove deployed daemon scripts in $HOME
+echo -e "  • Removing daemon scripts in $HOME..."
+rm -f "$HOME/agent.py" "$HOME/indexer.py"
+
+# 5. Remove configuration files
+echo -e "  • Removing configuration (~/.wolarc)..."
+rm -f "$HOME/.wolarc" "$HOME"/.wolarc.bak* 2>/dev/null || true
+
+# 6. Remove installed executables and symlinks across potential bin directories
+echo -e "  • Removing binaries and symlinks from target bin directories..."
+CANDIDATE_BINS=("$TARGET_BIN" "${PREFIX:-/data/data/com.termux/files/usr}/bin" "$HOME/.local/bin" "/usr/local/bin")
+for bdir in "${CANDIDATE_BINS[@]}"; do
+    [ -d "$bdir" ] || continue
+    for cmd in wolarc wola.r wola.k wola.rs wola.d wola.url wola.link wola.chat wola.c \
+               wola.bench wola.b wola.log wola.logs wola.th wola.gt wola.gh wola.t \
+               wola.m wola.i wola.u wola.upgrade wola-h wola.h wola-tui wola.tui \
+               wola.purge wola.destroy wola.selfdestruct wola.nuke; do
+        rm -f "$bdir/$cmd" 2>/dev/null || true
+    done
+    for f in "$bdir"/wola.* "$bdir"/wola-*; do
+        [ -e "$f" ] || [ -L "$f" ] && rm -f "$f" 2>/dev/null || true
+    done
+done
+
+# 7. Level 2 & Level 3: Models & Vector Database
+if [ "$LEVEL" -ge 2 ]; then
+    echo -e "  • ${C_RED}Erasing downloaded models directory: $MODELS_DIR...${C_RESET}"
+    if [ -n "$MODELS_DIR" ] && [ -d "$MODELS_DIR" ] && [ "$MODELS_DIR" != "$HOME" ] && [ "$MODELS_DIR" != "/" ]; then
+        rm -rf "$MODELS_DIR"
+    fi
+
+    echo -e "  • ${C_RED}Erasing vector database files...${C_RESET}"
+    rm -f "$HOME/knowledge_db.json" "$HOME"/knowledge_db.json* 2>/dev/null || true
+fi
+
+# 8. Level 3: Knowledge folder
+if [ "$LEVEL" -ge 3 ]; then
+    echo -e "  • ${C_RED}Erasing knowledge base directory: $KNOWLEDGE_DIR...${C_RESET}"
+    if [ -n "$KNOWLEDGE_DIR" ] && [ -d "$KNOWLEDGE_DIR" ] && [ "$KNOWLEDGE_DIR" != "$HOME" ] && [ "$KNOWLEDGE_DIR" != "/" ]; then
+        rm -rf "$KNOWLEDGE_DIR"
+    fi
+fi
+
+# 9. Purge Repository if requested or Level 3
+if [ "$PURGE_REPO" = true ]; then
+    echo -e "  • ${C_RED}Erasing repository source directory...${C_RESET}"
+    if [ -n "$WOLA_SOURCE_DIR" ] && [ -d "$WOLA_SOURCE_DIR" ] && [ "$WOLA_SOURCE_DIR" != "$HOME" ] && [ "$WOLA_SOURCE_DIR" != "/" ]; then
+        ( sleep 1 && rm -rf "$WOLA_SOURCE_DIR" ) >/dev/null 2>&1 &
+    fi
+    if [ -n "$REPO_DIR" ] && [ -d "$REPO_DIR" ] && [ "$REPO_DIR" != "$HOME" ] && [ "$REPO_DIR" != "/" ] && [ "$REPO_DIR" != "$WOLA_SOURCE_DIR" ]; then
+        ( sleep 1 && rm -rf "$REPO_DIR" ) >/dev/null 2>&1 &
+    fi
+fi
+
+echo ""
+echo -e "${C_GREEN}═════════════════════════════════════════════════════════════════${C_RESET}"
+if [ "$LEVEL" = "1" ]; then
+    echo -e "  ${C_BOLD}${C_GREEN}✓ WOLARC LEVEL 1 CLEANUP COMPLETE${C_RESET}"
+    echo -e "  • All system binaries, configurations, locks, and logs removed."
+    echo -e "  • Models (~/models), Vector DB & Knowledge notes preserved."
+elif [ "$LEVEL" = "2" ]; then
+    echo -e "  ${C_BOLD}${C_GREEN}✓ WOLARC LEVEL 2 PURGE COMPLETE${C_RESET}"
+    echo -e "  • System binaries, configurations, models, and vector DB removed."
+    echo -e "  • Knowledge notes directory preserved."
+elif [ "$LEVEL" = "3" ]; then
+    echo -e "  ${C_BOLD}${C_RED}✓ WOLARC LEVEL 3 SELF-DESTRUCTION COMPLETE${C_RESET}"
+    echo -e "  • All Wolarc files, models, databases, and knowledge notes erased."
+fi
+echo -e "${C_GREEN}═════════════════════════════════════════════════════════════════${C_RESET}"
