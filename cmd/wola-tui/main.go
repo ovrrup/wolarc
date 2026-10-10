@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -33,6 +34,7 @@ SUBCOMMANDS:
     stop, k            Stop all services cleanly
     restart, rs        Restart all services
     url, link          Display active Gateway Tunnel URL
+    local, offline     Display Local Offline Gateway & Hotspot Pairing QR
 
 HOTKEYS INSIDE TUI:
     Tab / Shift+Tab    Cycle between views
@@ -133,6 +135,12 @@ func main() {
 			} else {
 				fmt.Println("Gateway Tunnel is currently inactive. Run 'wola r' to start services.")
 			}
+			return
+		case "local", "offline", "hotspot", "lan":
+			cmd := exec.Command("wola.url", "local")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
 			return
 		case "d", "dash", "dashboard":
 			initialTab = ui.TabDashboard

@@ -342,6 +342,19 @@ func (m *AppModel) handlePaletteAction(action components.PaletteActionID) {
 		} else {
 			m.SetToast("No active tunnel URL found", components.ToastWarning)
 		}
+	case components.ActionLocalGateway:
+		out, err := exec.Command("wola.url", "local-raw").Output()
+		localURL := strings.TrimSpace(string(out))
+		if err == nil && localURL != "" {
+			_ = clipboard.WriteAll(localURL)
+			_ = exec.Command("termux-clipboard-set", localURL).Run()
+			m.SetToast("Copied offline link to clipboard: "+localURL, components.ToastSuccess)
+		} else {
+			fallbackURL := fmt.Sprintf("http://192.168.43.1:%s", m.Config.AgentPort)
+			_ = clipboard.WriteAll(fallbackURL)
+			_ = exec.Command("termux-clipboard-set", fallbackURL).Run()
+			m.SetToast("Copied hotspot link: "+fallbackURL, components.ToastSuccess)
+		}
 	case components.ActionRunIndexer:
 		go func() {
 			cmd := exec.Command("wola.i", "--once")

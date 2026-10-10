@@ -1,7 +1,12 @@
-import json, os, requests, time, threading, signal
+import json, os, requests, time, threading, signal, subprocess, re, socket
 import numpy as np
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
+
+try:
+    from web_ui import WEB_UI_HTML
+except Exception:
+    WEB_UI_HTML = "<h1>Wola Local AI Online</h1>"
 
 try:
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
@@ -318,9 +323,78 @@ def get_active_tunnel_url():
             pass
     return "Not active"
 
+def get_local_interfaces():
+    interfaces = []
+    seen_ips = set()
+    try:
+        out = subprocess.check_output(['ifconfig'], stderr=subprocess.DEVNULL).decode()
+        cur_iface = None
+        for line in out.splitlines():
+            if line and not line.startswith(' '):
+                cur_iface = line.split(':')[0].strip()
+            m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
+            if m:
+                ip = m.group(1)
+                if ip != '127.0.0.1' and not ip.startswith('169.254.'):
+                    if ip not in seen_ips:
+                        seen_ips.add(ip)
+                        label = 'Local Wi-Fi / LAN'
+                        if cur_iface and ('ap' in cur_iface or 'swlan' in cur_iface):
+                            label = 'Mobile Hotspot'
+                        elif cur_iface and ('rndis' in cur_iface or 'usb' in cur_iface):
+                            label = 'USB Tethering'
+                        elif ip.startswith('192.168.43.'):
+                            label = 'Mobile Hotspot'
+                        elif ip.startswith('192.168.42.'):
+                            label = 'USB Tethering'
+                        interfaces.append({'iface': cur_iface or 'net', 'ip': ip, 'label': label})
+    except Exception:
+        pass
+
+    for probe in ['8.8.8.8', '192.168.43.254', '192.168.1.1', '10.255.255.254']:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect((probe, 80))
+            ip = s.getsockname()[0]
+            s.close()
+            if ip and ip != '127.0.0.1' and ip not in seen_ips:
+                seen_ips.add(ip)
+                label = 'Local Wi-Fi / LAN'
+                if ip.startswith('192.168.43.'):
+                    label = 'Mobile Hotspot'
+                elif ip.startswith('192.168.42.'):
+                    label = 'USB Tethering'
+                interfaces.append({'iface': 'sock', 'ip': ip, 'label': label})
+        except Exception:
+            pass
+
+    hotspot_ip = '192.168.43.1'
+    if hotspot_ip not in seen_ips:
+        interfaces.append({'iface': 'hotspot', 'ip': hotspot_ip, 'label': 'Android Hotspot (Default Gateway)'})
+
+    return interfaces
+
 @app.route("/", methods=["GET"])
 def index():
-    return "<h1>Local RAG Agent Online</h1>"
+    return Response(WEB_UI_HTML, mimetype="text/html")
+
+@app.route("/local_info", methods=["GET"])
+@app.route("/v1/local_info", methods=["GET"])
+def local_info():
+    cfg = load_cfg()
+    interfaces = get_local_interfaces()
+    port = int(cfg.get("AGENT_PORT", 5000))
+    hotspot_url = f"http://192.168.43.1:{port}"
+    primary_url = f"http://{interfaces[0]['ip']}:{port}" if interfaces else hotspot_url
+    return jsonify({
+        "status": "online",
+        "port": port,
+        "interfaces": interfaces,
+        "primary_url": primary_url,
+        "hotspot_url": hotspot_url,
+        "api_endpoint": f"{primary_url}/v1",
+        "tunnel_url": get_active_tunnel_url()
+    })
 
 @app.route("/health", methods=["GET"])
 def health():

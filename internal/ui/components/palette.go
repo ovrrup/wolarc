@@ -17,6 +17,7 @@ const (
 	ActionStopStack    PaletteActionID = "stop_stack"
 	ActionRestartStack PaletteActionID = "restart_stack"
 	ActionCopyURL      PaletteActionID = "copy_url"
+	ActionLocalGateway PaletteActionID = "local_gateway"
 	ActionRunIndexer   PaletteActionID = "run_indexer"
 	ActionRunBench     PaletteActionID = "run_bench"
 	ActionGotoDash     PaletteActionID = "goto_dash"
@@ -56,6 +57,7 @@ func NewPaletteModel() PaletteModel {
 		{ID: ActionStopStack, Title: "Stop Wola Stack", Description: "Cleanly shut down daemons & wake-lock (wola.k)", Category: "Lifecycle"},
 		{ID: ActionRestartStack, Title: "Restart Services", Description: "Reboot all engines with fresh config (wola.rs)", Category: "Lifecycle"},
 		{ID: ActionCopyURL, Title: "Copy Gateway Tunnel URL", Description: "Copy live HTTPS endpoint to clipboard", Category: "Networking"},
+		{ID: ActionLocalGateway, Title: "Show Local / Hotspot Gateway", Description: "Display offline IP, Web UI link & QR code (wola local)", Category: "Networking"},
 		{ID: ActionRunIndexer, Title: "Trigger Note Indexer", Description: "Run background document vectorization pass (wola.i)", Category: "Knowledge"},
 		{ID: ActionRunBench, Title: "Run Inference Benchmark", Description: "Measure prompt eval & generation tok/s (wola.bench)", Category: "Hardware"},
 		{ID: ActionGotoDash, Title: "View: Dashboard", Description: "Switch to telemetry & hardware monitor", Category: "Navigation"},

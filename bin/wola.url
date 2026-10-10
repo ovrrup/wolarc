@@ -69,14 +69,119 @@ show_qr() {
     if [ -z "$url" ]; then
         return
     fi
-    echo -e "\n  ${C_BOLD}Scan QR code to connect from phone/PC:${C_RESET}"
-    local qr_res
-    qr_res=$(curl -s -m 4 "https://qrenco.de/${url}" 2>/dev/null)
-    if [ -n "$qr_res" ] && [[ "$qr_res" =~ "█" ]]; then
-        echo "$qr_res" | head -n 22 | sed 's/^/  /'
-    else
-        echo -e "  ${C_DIM}(Online QR service unreachable; use link directly)${C_RESET}"
+    echo -e "\n  ${C_BOLD}Scan QR code to connect from phone/PC/tablet:${C_RESET}"
+    local rendered=false
+    if python3 -c "import qrcode" >/dev/null 2>&1; then
+        local qr_ascii
+        qr_ascii=$(python3 -c "
+import sys, qrcode, io
+buf = io.StringIO()
+qr = qrcode.QRCode(border=1)
+qr.add_data(sys.argv[1])
+qr.print_ascii(out=buf, invert=True)
+for line in buf.getvalue().splitlines():
+    print('    ' + line)
+" "$url" 2>/dev/null)
+        if [ -n "$qr_ascii" ]; then
+            echo "$qr_ascii"
+            rendered=true
+        fi
     fi
+    if [ "$rendered" = false ]; then
+        local qr_res
+        qr_res=$(curl -s -m 3 "https://qrenco.de/${url}" 2>/dev/null)
+        if [ -n "$qr_res" ] && [[ "$qr_res" =~ "█" ]]; then
+            echo "$qr_res" | head -n 22 | sed 's/^/  /'
+        else
+            echo -e "  ${C_DIM}(Offline mode: navigate directly to ${url})${C_RESET}"
+        fi
+    fi
+}
+
+get_local_net_json() {
+    local port="${AGENT_PORT:-5000}"
+    python3 -c "
+import subprocess, re, socket, json
+interfaces = []
+seen = set()
+port = '${port}'
+try:
+    out = subprocess.check_output(['ifconfig'], stderr=subprocess.DEVNULL).decode()
+    cur_iface = ''
+    for line in out.splitlines():
+        if line and not line.startswith(' '):
+            cur_iface = line.split(':')[0].strip()
+        m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
+        if m:
+            ip = m.group(1)
+            if ip != '127.0.0.1' and not ip.startswith('169.254.') and ip not in seen:
+                seen.add(ip)
+                label = 'Local Wi-Fi / LAN'
+                if 'ap' in cur_iface or 'swlan' in cur_iface or ip.startswith('192.168.43.'):
+                    label = 'Android Mobile Hotspot'
+                elif 'rndis' in cur_iface or 'usb' in cur_iface or ip.startswith('192.168.42.'):
+                    label = 'USB Tethering'
+                interfaces.append({'iface': cur_iface or 'net', 'ip': ip, 'label': label, 'url': f'http://{ip}:{port}'})
+except Exception:
+    pass
+
+for probe in ['8.8.8.8', '192.168.43.254', '192.168.1.1']:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((probe, 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if ip and ip != '127.0.0.1' and ip not in seen:
+            seen.add(ip)
+            interfaces.append({'iface': 'sock', 'ip': ip, 'label': 'Local Wi-Fi / LAN', 'url': f'http://{ip}:{port}'})
+    except Exception:
+        pass
+
+if '192.168.43.1' not in seen:
+    interfaces.append({'iface': 'hotspot', 'ip': '192.168.43.1', 'label': 'Android Mobile Hotspot (Gateway)', 'url': f'http://192.168.43.1:{port}'})
+
+print(json.dumps(interfaces))
+" 2>/dev/null
+}
+
+show_local_gateway() {
+    local port="${AGENT_PORT:-5000}"
+    echo -e "${C_CYAN}╭────────────────────────────────────────────────────────────────╮${C_RESET}"
+    echo -e "${C_CYAN}│${C_RESET}             ${C_BOLD}WOLARC AIR-GAPPED LOCAL OFFLINE GATEWAY${C_RESET}            ${C_CYAN}│${C_RESET}"
+    echo -e "${C_CYAN}╰────────────────────────────────────────────────────────────────╯${C_RESET}"
+
+    local net_json
+    net_json=$(get_local_net_json)
+
+    local primary_local_url="http://192.168.43.1:${port}"
+    if [ -n "$net_json" ]; then
+        python3 -c "
+import json
+data = json.loads('''$net_json''')
+for item in data:
+    lbl = item.get('label', 'Local')
+    url = item.get('url', '')
+    print(f\"  • {lbl:<32} : \033[1;32m{url}\033[0m\")
+"
+        primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${port}')")
+    else
+        echo -e "  • Android Mobile Hotspot (Gateway): ${C_GREEN}http://192.168.43.1:${port}${C_RESET}"
+    fi
+
+    echo -e "  • OpenAI Compatible Base URL      : ${C_CYAN}${primary_local_url}/v1${C_RESET}"
+    echo -e "  • API Key (Header)                : ${C_YELLOW}sk-test${C_RESET}"
+    echo -e "  • Model ID                        : ${C_DIM}local-agent${C_RESET}"
+    copy_clipboard "$primary_local_url"
+
+    echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
+    show_qr "$primary_local_url"
+    echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
+    echo -e "  ${C_BOLD}HOW TO CONNECT WITHOUT INTERNET OR WI-FI ROUTER:${C_RESET}"
+    echo -e "    1. On this Android device: Turn ${C_GREEN}${C_BOLD}ON${C_RESET} Personal / Mobile Hotspot."
+    echo -e "    2. On your other device (laptop, tablet, phone): Connect to Hotspot Wi-Fi."
+    echo -e "    3. In any browser open: ${C_GREEN}${C_BOLD}http://192.168.43.1:${port}${C_RESET} (or scan QR code above)."
+    echo -e "    4. Enjoy 100% offline chat and RAG knowledge search!"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
 }
 
 switch_provider() {
@@ -127,8 +232,28 @@ switch_provider() {
 # Main flow
 URL=$(get_url)
 PROVIDER=$(get_provider)
+PORT="${AGENT_PORT:-5000}"
+
+SELF_NAME=$(basename "$0")
+if [ "$SELF_NAME" = "wola.local" ] || [ "$SELF_NAME" = "wola.hotspot" ]; then
+    show_local_gateway
+    exit 0
+fi
 
 case "$1" in
+    "local"|"offline"|"hotspot"|"lan")
+        show_local_gateway
+        ;;
+    "local-raw")
+        net_json=$(get_local_net_json)
+        primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
+        echo "$primary_local_url"
+        ;;
+    "local-api"|"local-endpoint")
+        net_json=$(get_local_net_json)
+        primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
+        echo "${primary_local_url}/v1"
+        ;;
     "raw")
         [ -n "$URL" ] && echo "$URL" || exit 1
         ;;
@@ -139,8 +264,9 @@ case "$1" in
         if [ -n "$URL" ]; then
             copy_clipboard "$URL"
         else
-            echo "[-] No active tunnel URL."
-            exit 1
+            net_json=$(get_local_net_json)
+            primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
+            copy_clipboard "$primary_local_url"
         fi
         ;;
     "switch"|"provider")
@@ -150,11 +276,14 @@ case "$1" in
         switch_provider "$PROVIDER"
         ;;
     "qr")
-        if [ -n "$URL" ]; then
+        if [ -n "$2" ]; then
+            show_qr "$2"
+        elif [ -n "$URL" ]; then
             show_qr "$URL"
         else
-            echo "[-] No active tunnel URL."
-            exit 1
+            net_json=$(get_local_net_json)
+            primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
+            show_qr "$primary_local_url"
         fi
         ;;
     *)
@@ -162,9 +291,10 @@ case "$1" in
         echo -e "${C_CYAN}│${C_RESET}               ${C_BOLD}WOLARC REMOTE GATEWAY & TUNNEL URL${C_RESET}               ${C_CYAN}│${C_RESET}"
         echo -e "${C_CYAN}╰────────────────────────────────────────────────────────────────╯${C_RESET}"
         if [ -z "$URL" ]; then
-            echo -e "  ${C_RED}○ Tunnel status : OFFLINE / DISCONNECTED${C_RESET}"
-            echo -e "  Start Wola with ${C_BOLD}wola.r${C_RESET} to bring up the remote gateway."
-            echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
+            echo -e "  ${C_RED}○ Remote Tunnel : OFFLINE / DISCONNECTED${C_RESET}"
+            echo -e "  ${C_DIM}(Start Wola with 'wola.r' when internet is available for remote access)${C_RESET}"
+            echo ""
+            show_local_gateway
             exit 0
         fi
 
@@ -177,7 +307,12 @@ case "$1" in
         echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
         show_qr "$URL"
         echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
+        echo -e "  ${C_BOLD}Local Offline Links (Zero Internet):${C_RESET}"
+        echo -e "    • Mobile Hotspot : ${C_GREEN}http://192.168.43.1:${PORT}${C_RESET}"
+        echo -e "    • View QR & LAN  : ${C_CYAN}wola local${C_RESET} or ${C_CYAN}wola.url local${C_RESET}"
+        echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
         echo -e "  ${C_BOLD}Actions:${C_RESET}"
+        echo -e "    wola.url local            Show offline local link, QR & hotspot steps"
         echo -e "    wola.url copy             Copy URL to clipboard"
         echo -e "    wola.url switch serveo    Switch tunnel provider to serveo.net"
         echo -e "    wola.url switch pinggy    Switch tunnel provider to pinggy.io"

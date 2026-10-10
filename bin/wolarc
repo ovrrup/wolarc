@@ -17,6 +17,10 @@ is_running() {
     pgrep -f "llama-server" >/dev/null 2>&1 || pgrep -f "agent.py" >/dev/null 2>&1
 }
 
+is_tui_enabled() {
+    [ "${ENABLE_TUI:-true}" != "false" ] && [ "${ENABLE_TUI:-true}" != "0" ] && [ "${ENABLE_TUI:-true}" != "off" ]
+}
+
 find_binary() {
     if [ -n "$LLAMA_BIN" ] && [ -x "$LLAMA_BIN" ]; then
         echo "$LLAMA_BIN"
@@ -320,36 +324,81 @@ case "$INVOCATION" in
             "k"|"stop")        stop_node ;;
             "rs"|"restart")    restart_node ;;
             "d"|"dash"|"dashboard")
-                if command -v wola-tui >/dev/null 2>&1; then
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                     exec wola-tui dashboard
                 fi
                 exec "$PREFIX/bin/wola.d"
                 ;;
             "c"|"chat")
-                if command -v wola-tui >/dev/null 2>&1; then
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                     exec wola-tui chat
                 fi
                 shift; exec "$PREFIX/bin/wola.chat" "$@"
                 ;;
             "m"|"models")
-                if command -v wola-tui >/dev/null 2>&1; then
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                     exec wola-tui models
                 fi
                 shift; exec "$PREFIX/bin/wola.m" "$@"
                 ;;
             "i"|"index"|"know"|"knowledge")
-                if command -v wola-tui >/dev/null 2>&1; then
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                     exec wola-tui knowledge
                 fi
                 shift; exec "$PREFIX/bin/wola.i" "$@"
                 ;;
             "l"|"log"|"logs")
-                if command -v wola-tui >/dev/null 2>&1; then
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                     exec wola-tui logs
                 fi
                 shift; exec "$PREFIX/bin/wola.log" "$@"
                 ;;
+            "tui")
+                shift
+                case "$1" in
+                    "on"|"enable"|"1"|"true")
+                        python3 -c "
+import re, os
+path = os.path.expanduser('~/.wolarc')
+lines = []
+if os.path.exists(path):
+    with open(path) as f: lines = f.readlines()
+pat = re.compile(r'^\s*ENABLE_TUI=.*$')
+if any(pat.match(l) for l in lines):
+    lines = [f'ENABLE_TUI=\"true\"\n' if pat.match(l) else l for l in lines]
+else:
+    lines.append('ENABLE_TUI=\"true\"\n')
+with open(path, 'w') as f: f.writelines(lines)
+"
+                        echo -e "${C_GREEN}[+] Go Bubble Tea TUI ENABLED.${C_RESET}"
+                        echo "    'wola' will now launch the interactive TUI."
+                        ;;
+                    "off"|"disable"|"0"|"false")
+                        python3 -c "
+import re, os
+path = os.path.expanduser('~/.wolarc')
+lines = []
+if os.path.exists(path):
+    with open(path) as f: lines = f.readlines()
+pat = re.compile(r'^\s*ENABLE_TUI=.*$')
+if any(pat.match(l) for l in lines):
+    lines = [f'ENABLE_TUI=\"false\"\n' if pat.match(l) else l for l in lines]
+else:
+    lines.append('ENABLE_TUI=\"false\"\n')
+with open(path, 'w') as f: f.writelines(lines)
+"
+                        echo -e "${C_YELLOW}[-] Go Bubble Tea TUI DISABLED.${C_RESET}"
+                        echo "    'wola' will now use the classic CLI command suite."
+                        ;;
+                    "status"|*)
+                        echo -e "${C_BOLD}Go Bubble Tea TUI Status:${C_RESET} ${ENABLE_TUI:-true}"
+                        echo "Usage: wola tui [on|off|status]"
+                        ;;
+                esac
+                exit 0
+                ;;
             "url"|"link"|"tunnel") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
+            "local"|"offline"|"hotspot"|"lan") shift; exec "$PREFIX/bin/wola.url" local "$@" ;;
             "b"|"bench")       shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
             "th"|"think")      exec "$PREFIX/bin/wola.th" ;;
             "t"|"tuner")       shift; exec "$PREFIX/bin/wola.t" "$@" ;;
@@ -357,11 +406,11 @@ case "$INVOCATION" in
             "u"|"update"|"upgrade") shift; exec "$PREFIX/bin/wola.u" "$@" ;;
             "status")          status_node ;;
             *)
-                if command -v wola-tui >/dev/null 2>&1; then
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                     exec wola-tui "$@"
                 fi
                 echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
-                echo "Usage: wola [dashboard|chat|models|knowledge|logs|start|stop|restart|status|url]"
+                echo "Usage: wola [dashboard|chat|models|knowledge|logs|start|stop|restart|status|url|local|tui]"
                 ;;
         esac
         ;;
@@ -372,6 +421,7 @@ case "$INVOCATION" in
             "rs"|"restart")    restart_node ;;
             "d"|"dash")        exec "$PREFIX/bin/wola.d" ;;
             "url"|"link"|"tunnel") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
+            "local"|"offline"|"hotspot"|"lan") shift; exec "$PREFIX/bin/wola.url" local "$@" ;;
             "c"|"chat")        shift; exec "$PREFIX/bin/wola.chat" "$@" ;;
             "b"|"bench")       shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
             "log"|"logs")      shift; exec "$PREFIX/bin/wola.log" "$@" ;;

@@ -508,7 +508,7 @@ setup_python() {
     print_step "4" "Python Dependencies Setup"
 
     if [ -f "$DIR/requirements.txt" ]; then
-        echo -e "  [*] Installing requirements (flask, flask-cors, requests, numpy, watchdog, gunicorn)..."
+        echo -e "  [*] Installing requirements (flask, flask-cors, requests, numpy, watchdog, gunicorn, qrcode)..."
         pip install -r "$DIR/requirements.txt" --quiet
         echo -e "  ${C_GREEN}✓ Python packages installed successfully.${C_RESET}"
     fi
@@ -581,6 +581,7 @@ deploy_binaries() {
     # Deploy python background scripts
     cp "$DIR/agent.py" "$HOME/agent.py"
     [ -f "$DIR/indexer.py" ] && cp "$DIR/indexer.py" "$HOME/indexer.py"
+    [ -f "$DIR/web_ui.py" ] && cp "$DIR/web_ui.py" "$HOME/web_ui.py"
 
     # Deploy all commands in bin/
     for f in "$DIR/bin"/*; do
@@ -599,6 +600,8 @@ deploy_binaries() {
     ln -sf "$TARGET_BIN/wola-h" "$TARGET_BIN/wola.h"
     ln -sf "$TARGET_BIN/wola.u" "$TARGET_BIN/wola.upgrade"
     ln -sf "$TARGET_BIN/wola.url" "$TARGET_BIN/wola.link"
+    ln -sf "$TARGET_BIN/wola.url" "$TARGET_BIN/wola.local"
+    ln -sf "$TARGET_BIN/wola.url" "$TARGET_BIN/wola.hotspot"
     ln -sf "$TARGET_BIN/wola.chat" "$TARGET_BIN/wola.c"
     ln -sf "$TARGET_BIN/wola.bench" "$TARGET_BIN/wola.b"
     ln -sf "$TARGET_BIN/wola.log" "$TARGET_BIN/wola.logs"
