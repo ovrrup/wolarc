@@ -9,14 +9,20 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 ## Features
 
 - **Autonomous RAG Engine**: Background daemon (`indexer.py`) automatically indexes notes (`.md`, `.txt`, `.pdf`) into local vector embeddings using cosine similarity.
+- **Modern Go & Bubble Tea TUI (`wola-tui`)**: Fully redesigned in Go using Charm Bubble Tea, Lip Gloss, and Bubbles. Features 5 unified views:
+  - `⚡ Dashboard`: Real-time hardware telemetry, generation velocity gauges, daemon orchestration cards.
+  - `💬 Chat`: Multi-turn conversational chat with live SSE token streaming, collapsible thinking blocks, and dynamic RAG injection.
+  - `📦 Models`: Local GGUF model manager (`~/models`), active role assignments, and external storage importer (Move/Copy).
+  - `📚 Knowledge`: Vector database inspector, document summaries, chunk counts, and live semantic search retrieval tester.
+  - `📋 Logs`: Live multi-daemon log tailer with auto-scroll and stream selector (`chat`, `embed`, `agent`, `tunnel`, `indexer`, `thinking`).
 - **Dual Engine Architecture**: Concurrently runs an embedding engine and a chat LLM engine via `llama-server`.
 - **OpenAI-Compatible Gateway**: Exposes `/v1/chat/completions` and `/v1/models` (port 5000), supporting real-time SSE streaming.
 - **Real-Time Thinking Viewer (`wola.th`)**: Inspect model reasoning (`<think>` tokens) and RAG retrieval scores live as inference streams.
-- **Live Telemetry Dashboard (`wola.d`)**: Monitor tokens/second generation speed, prompt eval speed, token counts, and service health.
 - **In-Terminal Model Store & Importer (`wola.gt` / `wola.gh`)**: Search and download tested GGUF models directly from Hugging Face or import your own local `.gguf` files with automatic Move/Copy management and role assignment.
 - **Zero-Config Remote Tunneling**: Automatically establishes an encrypted tunnel via `localhost.run`, `serveo.net`, or `pinggy.io` for remote access on phone or PC.
 - **Smart Setup & Conflict Engine**: `install.sh` detects existing processes/configurations and offers Clean Slate (`--clean`), Adjust & Merge BETA (`--adjust`), or Safe Upgrade (`--upgrade`).
 - **Process & Power Management**: Integrated Termux wake-lock support and safe process lifecycle controls (`wola.r`, `wola.k`, `wola.rs`).
+- **CI/CD Automated Cross-Compilation**: GitHub Actions workflow builds multi-architecture binaries (`linux/arm64`, `linux/amd64`, `darwin/arm64`, `windows/amd64`) on every push.
 
 ---
 
@@ -111,8 +117,9 @@ This boots:
 | `wola.r` | **Start** all services (acquires wake-lock) |
 | `wola.k` | **Stop** all services cleanly (releases wake-lock) |
 | `wola.rs` | **Restart** all services |
+| `wola-tui` | **Unified Go & Bubble Tea TUI** (`dashboard`, `chat`, `models`, `knowledge`, `logs`) |
 | `wolarc status` | View active process PIDs and listening ports |
-| `wola.d` | Open the live **telemetry dashboard** (tokens/s, memory, health) |
+| `wola.d` | Open the live **telemetry dashboard** (auto-delegates to `wola-tui` when present) |
 | `wola.url` | **Remote tunnel URL**, latency test, ASCII QR code & clipboard |
 | `wola.chat` | **Interactive in-terminal chat** with live token stream & RAG notes |
 | `wola.bench` | **Hardware benchmark** (tokens/sec) & optimal thread auto-tuner |

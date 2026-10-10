@@ -1,5 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/python3
-import os, sys, time, json, subprocess, requests, select, termios, tty, atexit, re
+import os, sys, time, json, subprocess, requests, select, termios, tty, atexit, re, shutil
+
+# If high-performance Go Bubble Tea TUI binary exists, hand off execution seamlessly
+_GO_TUI = shutil.which("wola-tui") or (os.path.expanduser("~/go/bin/wola-tui") if os.path.exists(os.path.expanduser("~/go/bin/wola-tui")) else None)
+if _GO_TUI and os.access(_GO_TUI, os.X_OK) and not os.environ.get("WOLA_LEGACY_TUI"):
+    try:
+        os.execv(_GO_TUI, [_GO_TUI] + sys.argv[1:])
+    except Exception:
+        pass
 
 # ANSI Color Codes & Styles
 C_RESET   = "\033[0m"

@@ -1,0 +1,116 @@
+name: Build and Cross-Compile Wolarc TUI
+
+on:
+  push:
+    branches:
+      - go-redesign
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - go-redesign
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux ARM64 (Primary Termux & AArch64 target)
+          - goos: linux
+            goarch: arm64
+            binary: wola-tui-linux-arm64
+          # Linux AMD64 (x86_64 servers & desktops)
+          - goos: linux
+            goarch: amd64
+            binary: wola-tui-linux-amd64
+          # Linux ARMv7 (32-bit legacy ARM)
+          - goos: linux
+            goarch: arm
+            goarm: '7'
+            binary: wola-tui-linux-armv7
+          # macOS Apple Silicon (M1/M2/M3/M4)
+          - goos: darwin
+            goarch: arm64
+            binary: wola-tui-darwin-arm64
+          # macOS Intel
+          - goos: darwin
+            goarch: amd64
+            binary: wola-tui-darwin-amd64
+          # Windows x64
+          - goos: windows
+            goarch: amd64
+            binary: wola-tui-windows-amd64.exe
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          check-latest: true
+          cache: true
+
+      - name: Verify Dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Run Go Vet
+        run: |
+          go vet ./...
+
+      - name: Compile wola-tui Binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          LDFLAGS="-s -w -X 'main.Version=v2.0.0-${{ github.ref_name }}'"
+          go build -ldflags="$LDFLAGS" -o "dist/${{ matrix.binary }}" ./cmd/wola-tui
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: dist/${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-binaries
+
+      - name: Flatten Release Assets
+        run: |
+          mkdir -p assets
+          find release-binaries -type f -exec mv {} assets/ \;
+          ls -la assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true

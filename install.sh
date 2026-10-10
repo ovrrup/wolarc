@@ -533,6 +533,18 @@ deploy_binaries() {
     ln -sf "$TARGET_BIN/wola.log" "$TARGET_BIN/wola.logs"
     ln -sf "$TARGET_BIN/wola.gt" "$TARGET_BIN/wola.gh"
 
+    # Install Go Bubble Tea TUI binary if pre-built or present
+    if [ -f "$DIR/dist/wola-tui" ]; then
+        cp "$DIR/dist/wola-tui" "$TARGET_BIN/wola-tui"
+        chmod +x "$TARGET_BIN/wola-tui"
+    elif [ -f "$DIR/dist/wola-tui-linux-arm64" ] && [ "$IS_TERMUX" = "true" ]; then
+        cp "$DIR/dist/wola-tui-linux-arm64" "$TARGET_BIN/wola-tui"
+        chmod +x "$TARGET_BIN/wola-tui"
+    fi
+    if [ -f "$TARGET_BIN/wola-tui" ]; then
+        ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola.tui"
+    fi
+
     # Save commit version if in git repo
     if [ -d "$DIR/.git" ]; then
         git -C "$DIR" rev-parse --short HEAD > "$HOME/.wola_version" 2>/dev/null || true
