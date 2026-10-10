@@ -19,9 +19,14 @@ is_online() {
 }
 
 get_tunnel() {
+    local url_file="$HOME/.wola_url"
+    if [ -f "$url_file" ]; then
+        cat "$url_file" | tr -d ' \n\r'
+        return
+    fi
     local t_log="$HOME/tunnel.log"
     if [ -f "$t_log" ]; then
-        grep -oE "https://[a-zA-Z0-9.-]+\.lhr\.life" "$t_log" 2>/dev/null | grep -v "admin" | tail -n 1
+        grep -oE "https://[a-zA-Z0-9.-]+(?:\.lhr\.life|\.serveo\.net|\.pinggy\.link|\.free\.pinggy\.link)" "$t_log" 2>/dev/null | grep -v "admin" | tail -n 1
     fi
 }
 
@@ -57,6 +62,7 @@ show_manual() {
     echo ""
     echo -e " ${C_BOLD}2. CONNECTIVITY & CHAT CLIENT${C_RESET}"
     echo -e "   ${C_CYAN}wola.url${C_RESET}           Tunnel URL, ping latency, QR code & clipboard"
+    echo -e "   ${C_CYAN}wola.local${C_RESET}         Air-Gapped Hotspot & LAN Web Chat UI (Offline)"
     echo -e "   ${C_GREEN}wola.chat${C_RESET}          Interactive CLI chat with note citations"
     echo ""
     echo -e " ${C_BOLD}3. LIVE MONITORING & TELEMETRY${C_RESET}"
@@ -74,9 +80,11 @@ show_manual() {
     echo -e " ${C_BOLD}5. TUNING & BENCHMARKING${C_RESET}"
     echo -e "   ${C_YELLOW}wola.bench${C_RESET}         Measure token speed & auto-tune CPU threads"
     echo -e "   ${C_YELLOW}wola.t${C_RESET}             View/edit parameters (TEMPERATURE, TOP_K, etc.)"
+    echo -e "   ${C_YELLOW}wola tui [on|off]${C_RESET}  Toggle Go Bubble Tea TUI vs classic CLI suite"
     echo ""
     echo -e " ${C_BOLD}6. UPDATES & MAINTENANCE${C_RESET}"
     echo -e "   ${C_GREEN}wola.u${C_RESET}             Check for updates and apply latest release"
+    echo -e "   ${C_RED}wola.purge${C_RESET}         Discrete file deletion and system purge"
     echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
 }
 
@@ -87,7 +95,8 @@ interactive_menu() {
         echo -e "  [1] Start (wola.r)          [5] Remote URL (wola.url)   [9]  Benchmark (wola.bench)"
         echo -e "  [2] Stop (wola.k)           [6] CLI Chat (wola.chat)    [10] View Logs (wola.log)"
         echo -e "  [3] Restart (wola.rs)       [7] Think Stream (wola.th)  [11] Model Store (wola.gt/gh)"
-        echo -e "  [4] Dashboard (wola.d)      [8] RAG Search (wola.i)     [u]  Check Updates (wola.u)"
+        echo -e "  [4] Dashboard (wola.d)      [8] RAG Search (wola.i)     [12] Local Gateway (wola.local)"
+        echo -e "  [u] Check Updates (wola.u)  [p] Purge / Clean           [t]  Toggle TUI Mode"
         echo -e "  [0] Exit Menu"
         echo ""
         read -p "Select option (or press Enter to exit): " choice
@@ -107,7 +116,18 @@ interactive_menu() {
             9) wola.bench; read -p "Press Enter to continue..." ;;
             10) wola.log; read -p "Press Enter to continue..." ;;
             11) wola.gt ;;
+            12) wola.url local; read -p "Press Enter to continue..." ;;
             "u"|"U") wola.u; read -p "Press Enter to continue..." ;;
+            "p"|"P") wola.purge; read -p "Press Enter to continue..." ;;
+            "t"|"T") 
+                if [ "${ENABLE_TUI:-true}" = "false" ]; then
+                    wolarc tui on
+                else
+                    wolarc tui off
+                fi
+                [ -f "$CONFIG" ] && source "$CONFIG"
+                read -p "Press Enter to continue..."
+                ;;
             0|"") break ;;
             *) echo "Invalid option." ; sleep 1 ;;
         esac

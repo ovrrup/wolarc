@@ -8,12 +8,14 @@
 
 | Command | Aliases | Description |
 | [`wola`](#2-telemetry-dashboard--modern-tui) | `wola-tui`, `wola.tui` | Unified Go & Bubble Tea TUI (`dashboard`, `chat`, `models`, `knowledge`, `logs`) and root CLI |
+| [`wola tui`](#2-telemetry-dashboard--modern-tui) | `wolarc tui` | Toggle default UI mode (`on` / `off` / `status`) between Go TUI and classic CLI |
 | [`wola.r`](#1-system-lifecycle--process-management) | `wolarc r`, `wolarc start` | Start all AI node services (chat, embed, API, tunnel, wake-lock) |
 | [`wola.k`](#1-system-lifecycle--process-management) | `wolarc k`, `wolarc stop` | Stop all AI node services cleanly and release wake-locks |
 | [`wola.rs`](#1-system-lifecycle--process-management) | `wolarc rs`, `wolarc restart` | Graceful restart cycle (shutdown -> cooldown -> boot) |
 | [`wolarc status`](#1-system-lifecycle--process-management) | `wola status` | Display active process PIDs, listening ports, and switch status |
 | [`wola.d`](#2-telemetry-dashboard--modern-tui) | `wola.tui`, `wola-tui`, `wolarc d` | Launch the high-performance Go Bubble Tea telemetry dashboard |
 | [`wola.url`](#3-remote-gateway--connectivity) | `wola.link`, `wolarc url` | Show public tunnel URL, QR code, ping latency & copy endpoint |
+| [`wola.local`](#3-remote-gateway--connectivity) | `wola.hotspot`, `wolarc local` | Offline local gateway, zero-dependency Web Chat UI, and QR pairing |
 | [`wola.chat`](#4-interactive-terminal-chat-client) | `wola.c`, `wolarc c` | Interactive CLI chat client with live token streaming and RAG citations |
 | [`wola.th`](#5-deep-thinking-stream-viewer) | `wolarc th` | Real-time streaming monitor for model reasoning chains (`<think>`) |
 | [`wola.gt`](#6-model-store--local-gguf-importer) | `wola.gh`, `wolarc gt` | Model Store & local GGUF file importer (HuggingFace / storage) |
@@ -120,6 +122,12 @@ Launches the full-screen terminal user interface written in Go and Bubble Tea.
 | `k` | Stop Wolarc services |
 | `q` / `Ctrl+C` | Exit TUI |
 
+### `wola tui`
+Toggles default interface behavior when running `wola` without arguments:
+- `wola tui on`: Enables Go Bubble Tea TUI as the primary interface (`ENABLE_TUI="true"` in `~/.wolarc`).
+- `wola tui off`: Disables TUI and delegates `wola` to the classic CLI command center (`wola-h`).
+- `wola tui status`: Displays current toggle status.
+
 ---
 
 ## 3. Remote Gateway & Connectivity
@@ -141,6 +149,42 @@ wola.url reconnect
 - **ASCII QR Code**: Generates an interactive terminal QR code for camera scanning from mobile devices.
 - **Clipboard Sync**: Automatically copies `https://<tunnel-url>/v1` to the clipboard using `termux-clipboard-set` or `xclip`.
 - **Local IP Fallback**: Displays LAN endpoint (e.g. `http://192.168.1.X:5000/v1`) for local Wi-Fi clients.
+
+### `wola.local` / `wola.hotspot`
+Provides air-gapped local network connectivity and pairing for offline environments:
+
+```bash
+# Display local IP interfaces, Web UI link, and terminal QR code
+wola.local
+# or
+wola.hotspot
+
+# Generate standalone QR code in terminal for mobile scanning
+wola.local qr
+
+# Copy primary local URL to clipboard
+wola.local copy
+
+# Output raw local URL (for scripting)
+wola.local raw
+
+# Print /v1 API endpoint
+wola.local api
+```
+
+#### Multi-Interface Auto-Detection:
+- **Local Wi-Fi LAN**: Detects assigned IP on active wireless networks (e.g., `http://192.168.1.105:5000/`).
+- **Android AP Hotspot**: Dedicated offline pairing address for when your Android device hosts its own Wi-Fi hotspot (`http://192.168.43.1:5000/`).
+- **USB Reverse Tethering / RNDIS**: Direct cable connection address (`http://192.168.42.129:5000/`).
+- **Network Discovery Endpoint**: Exposes `/v1/local_info` returning JSON metadata of all detected interfaces and connection modes.
+
+### Standalone Zero-Dependency Web Chat UI
+Accessible directly via any browser connected to your local network at `http://<ip>:5000/`:
+- **100% Air-Gapped**: Zero external CDN calls, remote scripts, or Google Fonts. Functions completely offline without internet access.
+- **Embedded Web Client**: Fully responsive dark-mode UI with markdown formatting, syntax highlighting, and dynamic copy-to-clipboard buttons.
+- **Real-Time SSE Streaming**: Token-by-token live generation with elapsed time and speed metrics.
+- **Deep Thinking Toggle**: Automatically parses and collapses `<think>...</think>` internal cognitive reasoning traces into interactive collapsible process boxes.
+- **Quick Connection Modals**: Direct copyable snippets for curl, Python SDK, Obsidian, Chatbox, and NextChat.
 
 ---
 

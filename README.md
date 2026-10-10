@@ -26,6 +26,9 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
   - `🍞 Micro-Toast System`: Non-intrusive transient notifications with automatic dismissal for system events and clipboard sync.
 - **Dual Engine Architecture**: Concurrently runs an embedding engine and a chat LLM engine via `llama-server`.
 - **OpenAI-Compatible Gateway**: Exposes `/v1/chat/completions` and `/v1/models` (port 5000), supporting real-time SSE streaming.
+- **Standalone Zero-Dependency Web Chat UI**: Built-in browser interface served directly from the local gateway (`http://<ip>:5000/`) with zero external CDNs or remote font dependencies. Includes markdown rendering, copy buttons, live SSE token streaming, and collapsible cognitive reasoning process boxes (`<think>`).
+- **Air-Gapped Offline Gateway & Hotspot Pairing (`wola.local` / `wola.hotspot`)**: Connect completely offline over local Wi-Fi, Android portable hotspot (`192.168.43.1`), or USB tethering (`192.168.42.129`) with auto-generated terminal QR codes and `/v1/local_info` discovery.
+- **Dual TUI / CLI Operational Toggle (`wola tui [on|off]`)**: Seamlessly switch between the full-screen Bubble Tea TUI and the classic script-based terminal suite.
 - **Real-Time Thinking Viewer (`wola.th`)**: Inspect model reasoning (`<think>` tokens) and RAG retrieval scores live as inference streams.
 - **In-Terminal Model Store & Importer (`wola.gt` / `wola.gh`)**: Search and download tested GGUF models directly from Hugging Face or import your own local `.gguf` files with automatic Move/Copy management and role assignment.
 - **Zero-Config Remote Tunneling**: Automatically establishes an encrypted tunnel via `localhost.run`, `serveo.net`, or `pinggy.io` for remote access on phone or PC.
@@ -142,6 +145,7 @@ This boots:
 | `wolarc status` | View active process PIDs and listening ports |
 | `wola.d` | Open the live **telemetry dashboard** (auto-delegates to `wola-tui` when present) |
 | `wola.url` | **Remote tunnel URL**, latency test, ASCII QR code & clipboard |
+| `wola.local` / `wola.hotspot` | **Offline gateway & Web Chat UI**, LAN/Hotspot/USB links, QR pairing |
 | `wola.chat` | **Interactive in-terminal chat** with live token stream & RAG notes |
 | `wola.bench` | **Hardware benchmark** (tokens/sec) & optimal thread auto-tuner |
 | `wola.log` | Unified live daemon **log follower** (`chat`, `embed`, `tunnel`) |
@@ -152,6 +156,8 @@ This boots:
 | `wola.i` | Manage vector index (`wola.i status`, `wola.i add <f>`, `wola.i search <q>`) |
 | `wola.u` | **Check for updates** & upgrade to latest release (`wola.u`) |
 | `wola-h` | Interactive **command center** and quick launcher |
+| `wola tui` | **Toggle default UI** between Go Bubble Tea TUI and classic CLI suite (`on` / `off` / `status`) |
+| `wola.purge` | Deep system cleanup & interactive self-destruct uninstaller |
 
 ---
 
@@ -163,6 +169,7 @@ wola.t TEMPERATURE 0.2              # Adjust sampling temperature
 wola.t SIMILARITY_THRESHOLD 0.70    # Strictness of vector matching
 wola.t TOP_K 3                      # Number of context chunks injected
 wola.t SYSTEM_PROMPT "Be concise."  # Assistant persona
+wola.t ENABLE_TUI true              # Default UI mode (true: Go TUI, false: classic CLI)
 ```
 
 Engine knobs (applied on next `wola.r` startup):

@@ -557,7 +557,7 @@ textarea {
       </div>
       <div class="conn-link-row">
         <span class="conn-link-text" id="link-hotspot">http://192.168.43.1:5000</span>
-        <button class="conn-copy-btn" onclick="copyValue('http://192.168.43.1:5000', this)">Copy</button>
+        <button class="conn-copy-btn" onclick="copyValue(document.getElementById('link-hotspot').innerText, this)">Copy</button>
       </div>
     </div>
     <div class="conn-card">
@@ -576,8 +576,8 @@ textarea {
         Connect phone to laptop via USB cable and enable USB Tethering in Android settings:
       </div>
       <div class="conn-link-row">
-        <span class="conn-link-text">http://192.168.42.129:5000</span>
-        <button class="conn-copy-btn" onclick="copyValue('http://192.168.42.129:5000', this)">Copy</button>
+        <span class="conn-link-text" id="link-usb">Detecting...</span>
+        <button class="conn-copy-btn" onclick="copyValue(document.getElementById('link-usb').innerText, this)">Copy</button>
       </div>
     </div>
     <div class="conn-card">
@@ -780,6 +780,7 @@ async function handleSubmit() {
   setStreaming(true);
 
   let accumulated = "";
+  let inReasoningTag = false;
 
   try {
     const res = await fetch("/v1/chat/completions", {
@@ -811,15 +812,33 @@ async function handleSubmit() {
         if (trimmed.startsWith("data:")) {
           try {
             const data = JSON.parse(trimmed.slice(5).trim());
-            const delta = data.choices && data.choices[0] && data.choices[0].delta && data.choices[0].delta.content;
+            const choice = data.choices && data.choices[0];
+            const delta = choice && choice.delta;
             if (delta) {
-              accumulated += delta;
+              if (delta.reasoning_content) {
+                if (!inReasoningTag && !accumulated.includes("<think>")) {
+                  accumulated += "<think>";
+                  inReasoningTag = true;
+                }
+                accumulated += delta.reasoning_content;
+              } else if (delta.content) {
+                if (inReasoningTag) {
+                  accumulated += "</think>\n\n";
+                  inReasoningTag = false;
+                }
+                accumulated += delta.content;
+              }
               botContent.innerHTML = formatMarkdown(accumulated, true);
               chatStream.scrollTop = chatStream.scrollHeight;
             }
           } catch (e) {}
         }
       }
+    }
+
+    if (inReasoningTag) {
+      accumulated += "</think>\n\n";
+      inReasoningTag = false;
     }
 
     if (!accumulated && buffer) {
@@ -833,6 +852,9 @@ async function handleSubmit() {
     messages.push({ role: "assistant", content: accumulated });
   } catch (err) {
     if (err.name === "AbortError") {
+      if (inReasoningTag) {
+        accumulated += "</think>\n\n";
+      }
       botContent.innerHTML = formatMarkdown(accumulated + "\n\n*(Generation stopped)*", false);
       messages.push({ role: "assistant", content: accumulated });
     } else {
@@ -851,9 +873,21 @@ fetch("/v1/local_info")
     if (data.hotspot_url) {
       document.getElementById("link-hotspot").innerText = data.hotspot_url;
     }
-    if (data.primary_url) {
+    if (data.lan_url) {
+      document.getElementById("link-lan").innerText = data.lan_url;
+    } else if (data.primary_url && data.primary_url !== data.hotspot_url) {
       document.getElementById("link-lan").innerText = data.primary_url;
-      document.getElementById("link-api").innerText = data.primary_url + "/v1";
+    } else {
+      document.getElementById("link-lan").innerText = "Connect to Wi-Fi to view LAN link";
+    }
+    if (data.usb_url) {
+      document.getElementById("link-usb").innerText = data.usb_url;
+    } else {
+      document.getElementById("link-usb").innerText = "Plug in USB and enable tethering";
+    }
+    const apiBase = data.lan_url || data.primary_url || data.hotspot_url;
+    if (apiBase) {
+      document.getElementById("link-api").innerText = apiBase + "/v1";
     }
   })
   .catch(() => {});

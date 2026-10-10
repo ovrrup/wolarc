@@ -105,25 +105,28 @@ import subprocess, re, socket, json
 interfaces = []
 seen = set()
 port = '${port}'
-try:
-    out = subprocess.check_output(['ifconfig'], stderr=subprocess.DEVNULL).decode()
-    cur_iface = ''
-    for line in out.splitlines():
-        if line and not line.startswith(' '):
-            cur_iface = line.split(':')[0].strip()
-        m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
-        if m:
-            ip = m.group(1)
-            if ip != '127.0.0.1' and not ip.startswith('169.254.') and ip not in seen:
-                seen.add(ip)
-                label = 'Local Wi-Fi / LAN'
-                if 'ap' in cur_iface or 'swlan' in cur_iface or ip.startswith('192.168.43.'):
-                    label = 'Android Mobile Hotspot'
-                elif 'rndis' in cur_iface or 'usb' in cur_iface or ip.startswith('192.168.42.'):
-                    label = 'USB Tethering'
-                interfaces.append({'iface': cur_iface or 'net', 'ip': ip, 'label': label, 'url': f'http://{ip}:{port}'})
-except Exception:
-    pass
+for cmd in [['ifconfig'], ['ip', '-4', 'addr']]:
+    try:
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
+        cur_iface = ''
+        for line in out.splitlines():
+            if line and not line.startswith(' '):
+                cur_iface = line.split(':')[0].split()[0].strip()
+            m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
+            if m:
+                ip = m.group(1)
+                if ip != '127.0.0.1' and not ip.startswith('169.254.') and ip not in seen:
+                    seen.add(ip)
+                    label = 'Local Wi-Fi / LAN'
+                    if 'ap' in cur_iface or 'swlan' in cur_iface or ip.startswith('192.168.43.'):
+                        label = 'Android Mobile Hotspot'
+                    elif 'rndis' in cur_iface or 'usb' in cur_iface or ip.startswith('192.168.42.'):
+                        label = 'USB Tethering'
+                    interfaces.append({'iface': cur_iface or 'net', 'ip': ip, 'label': label, 'url': f'http://{ip}:{port}'})
+        if interfaces:
+            break
+    except Exception:
+        pass
 
 for probe in ['8.8.8.8', '192.168.43.254', '192.168.1.1']:
     try:
@@ -168,6 +171,7 @@ for item in data:
         echo -e "  • Android Mobile Hotspot (Gateway): ${C_GREEN}http://192.168.43.1:${port}${C_RESET}"
     fi
 
+    echo -e "  • Web Chat & Pairing UI           : ${C_GREEN}${primary_local_url}/${C_RESET}"
     echo -e "  • OpenAI Compatible Base URL      : ${C_CYAN}${primary_local_url}/v1${C_RESET}"
     echo -e "  • API Key (Header)                : ${C_YELLOW}sk-test${C_RESET}"
     echo -e "  • Model ID                        : ${C_DIM}local-agent${C_RESET}"
@@ -236,13 +240,44 @@ PORT="${AGENT_PORT:-5000}"
 
 SELF_NAME=$(basename "$0")
 if [ "$SELF_NAME" = "wola.local" ] || [ "$SELF_NAME" = "wola.hotspot" ]; then
-    show_local_gateway
-    exit 0
+    case "$1" in
+        "copy")
+            net_json=$(get_local_net_json)
+            primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
+            copy_clipboard "$primary_local_url"
+            exit 0
+            ;;
+        "raw")
+            net_json=$(get_local_net_json)
+            primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
+            echo "$primary_local_url"
+            exit 0
+            ;;
+        "api"|"endpoint")
+            net_json=$(get_local_net_json)
+            primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
+            echo "${primary_local_url}/v1"
+            exit 0
+            ;;
+        "qr")
+            net_json=$(get_local_net_json)
+            primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
+            show_qr "$primary_local_url"
+            exit 0
+            ;;
+        *)
+            show_local_gateway
+            exit 0
+            ;;
+    esac
 fi
 
 case "$1" in
     "local"|"offline"|"hotspot"|"lan")
         show_local_gateway
+        ;;
+    "local-json"|"json")
+        get_local_net_json
         ;;
     "local-raw")
         net_json=$(get_local_net_json)

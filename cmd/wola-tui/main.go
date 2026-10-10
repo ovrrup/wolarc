@@ -35,6 +35,7 @@ SUBCOMMANDS:
     restart, rs        Restart all services
     url, link          Display active Gateway Tunnel URL
     local, offline     Display Local Offline Gateway & Hotspot Pairing QR
+    tui [on|off|status] Toggle or view default launch mode (TUI vs CLI suite)
 
 HOTKEYS INSIDE TUI:
     Tab / Shift+Tab    Cycle between views
@@ -91,7 +92,22 @@ func main() {
 	cfg := config.LoadConfig()
 	initialTab := ui.TabDashboard
 
-	if len(os.Args) > 1 {
+	if len(os.Args) <= 1 {
+		if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") {
+			cmd := exec.Command("wola-h")
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				fallback := exec.Command("wola.d")
+				fallback.Stdin = os.Stdin
+				fallback.Stdout = os.Stdout
+				fallback.Stderr = os.Stderr
+				_ = fallback.Run()
+			}
+			return
+		}
+	} else {
 		arg := strings.ToLower(os.Args[1])
 		switch arg {
 		case "-h", "--help", "help":
@@ -138,6 +154,83 @@ func main() {
 			return
 		case "local", "offline", "hotspot", "lan":
 			cmd := exec.Command("wola.url", "local")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+			return
+		case "tui":
+			if len(os.Args) > 2 {
+				sub := strings.ToLower(os.Args[2])
+				switch sub {
+				case "on", "enable", "1", "true":
+					if err := config.SetConfigKey("ENABLE_TUI", "true"); err != nil {
+						fmt.Printf("Error updating configuration: %v\n", err)
+						os.Exit(1)
+					}
+					fmt.Println("✓ Go Bubble Tea TUI ENABLED. 'wola' will launch the interactive TUI.")
+					return
+				case "off", "disable", "0", "false":
+					if err := config.SetConfigKey("ENABLE_TUI", "false"); err != nil {
+						fmt.Printf("Error updating configuration: %v\n", err)
+						os.Exit(1)
+					}
+					fmt.Println("✓ Go Bubble Tea TUI DISABLED. 'wola' will use the classic CLI command suite.")
+					return
+				case "status":
+					statusStr := "enabled (true)"
+					if !cfg.EnableTUI {
+						statusStr = "disabled (false)"
+					}
+					fmt.Printf("Go Bubble Tea TUI Status: %s\n", statusStr)
+					fmt.Println("Usage: wola tui [on|off|status]")
+					return
+				}
+			}
+			statusStr := "enabled (true)"
+			if !cfg.EnableTUI {
+				statusStr = "disabled (false)"
+			}
+			fmt.Printf("Go Bubble Tea TUI Status: %s\n", statusStr)
+			fmt.Println("Usage: wola tui [on|off|status]")
+			return
+		case "bench", "b":
+			cmd := exec.Command("wola.bench", os.Args[2:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+			return
+		case "think", "th":
+			cmd := exec.Command("wola.th", os.Args[2:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+			return
+		case "tuner", "t":
+			cmd := exec.Command("wola.t", os.Args[2:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+			return
+		case "store", "gt", "gh":
+			cmd := exec.Command("wola.gt", os.Args[2:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+			return
+		case "update", "upgrade", "u":
+			cmd := exec.Command("wola.u", os.Args[2:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+			return
+		case "purge", "destroy", "selfdestruct", "nuke":
+			cmd := exec.Command("wola.purge", os.Args[2:]...)
+			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()

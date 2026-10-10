@@ -386,6 +386,19 @@ func (m *AppModel) handlePaletteAction(action components.PaletteActionID) {
 		m.Knowledge.Config = m.Config
 		m.Logs.Config = m.Config
 		m.SetToast("Configuration reloaded from ~/.wolarc", components.ToastSuccess)
+	case components.ActionToggleTUI:
+		newVal := !m.Config.EnableTUI
+		m.Config.EnableTUI = newVal
+		valStr := "false"
+		if newVal {
+			valStr = "true"
+		}
+		_ = config.SetConfigKey("ENABLE_TUI", valStr)
+		if newVal {
+			m.SetToast("Go Bubble Tea TUI enabled as default", components.ToastSuccess)
+		} else {
+			m.SetToast("Go Bubble Tea TUI disabled (classic CLI default)", components.ToastWarning)
+		}
 	case components.ActionQuitApp:
 		m.Quitting = true
 	}

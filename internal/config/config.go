@@ -36,6 +36,7 @@ type Config struct {
 	SystemPrompt        string
 	SourceDir           string
 	ChunkSize           int
+	EnableTUI           bool
 }
 
 func ExpandHome(path string) string {
@@ -80,6 +81,7 @@ func DefaultConfig() *Config {
 		SystemPrompt:        "Answer directly and accurately.",
 		SourceDir:           "",
 		ChunkSize:           1200,
+		EnableTUI:           true,
 	}
 }
 
@@ -178,6 +180,9 @@ func LoadConfig() *Config {
 			if n, err := strconv.Atoi(val); err == nil {
 				cfg.ChunkSize = n
 			}
+		case "ENABLE_TUI":
+			valLower := strings.ToLower(val)
+			cfg.EnableTUI = !(valLower == "false" || valLower == "0" || valLower == "off")
 		}
 	}
 

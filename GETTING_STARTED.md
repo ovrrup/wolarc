@@ -22,11 +22,14 @@ This guide provides step-by-step instructions for installing, configuring, runni
 7. [Starting & Operating the Node](#7-starting--operating-the-node)
 8. [User Interfaces & Interaction](#8-user-interfaces--interaction)
    - [The Modern Go Bubble Tea TUI (`wola.d` / `wola-tui`)](#the-modern-go-bubble-tea-tui-wolad--wola-tui)
+   - [Interface Mode Toggle (`wola tui`)](#interface-mode-toggle-wola-tui)
+   - [Standalone Zero-Dependency Web Chat UI](#standalone-zero-dependency-web-chat-ui)
    - [Interactive Terminal Chat (`wola.chat`)](#interactive-terminal-chat-wolachat)
    - [Deep Thinking Stream Viewer (`wola.th`)](#deep-thinking-stream-viewer-wolath)
    - [Interactive Command Wizard (`wola-h`)](#interactive-command-wizard-wola-h)
 9. [Connecting Remote Devices & Client Apps](#9-connecting-remote-devices--client-apps)
    - [Tunnel URL & Endpoint (`wola.url`)](#tunnel-url--endpoint-wolaurl)
+   - [Air-Gapped Offline & Hotspot Pairing (`wola.local`)](#air-gapped-offline--hotspot-pairing-wolalocal--wolahotspot)
    - [Connecting Chatbox](#connecting-chatbox-mobile--desktop)
    - [Connecting Obsidian](#connecting-obsidian-smart-connections--copilot)
    - [Connecting NextChat / Open-WebUI](#connecting-nextchat--open-webui)
@@ -374,6 +377,43 @@ wola-tui
 
 ---
 
+### Interface Mode Toggle (`wola tui`)
+
+Wolarc supports two distinct operational modes for terminal interaction:
+1. **Modern Go Bubble Tea TUI** (Default): Full-screen multi-tab dashboard, interactive chat, model manager, and live log followers.
+2. **Classic Unix CLI Suite**: Fast, modular terminal scripts (`wola.r`, `wola.k`, `wola.chat`, `wola.bench`, `wola-h`).
+
+You can toggle your default launch mode at any time:
+```bash
+# Enable Go Bubble Tea TUI as default
+wola tui on
+
+# Disable TUI and use classic CLI menu suite as default
+wola tui off
+
+# Check current mode status
+wola tui status
+```
+When TUI mode is disabled, running `wola` opens the classic `wola-h` menu wizard. You can still launch the TUI explicitly at any time by running `wola-tui`.
+
+---
+
+### Standalone Zero-Dependency Web Chat UI
+
+When Wolarc is running, it hosts an embedded, 100% air-gapped Web Chat UI directly on port `5000`. You can access it from any browser on your device or over your local network:
+- **Local Browser**: `http://localhost:5000/` or `http://127.0.0.1:5000/`
+- **Wi-Fi LAN**: `http://192.168.1.X:5000/` (check with `wola.local`)
+- **Android Hotspot**: `http://192.168.43.1:5000/`
+
+#### Key Web UI Highlights:
+- **Zero External Dependencies**: Works completely offline with zero CDN dependencies, tracking scripts, or remote web fonts.
+- **SSE Token Streaming**: Live token-by-token response streaming with elapsed latency and token velocity tracking.
+- **Deep Thinking Support**: Automatically formats reasoning chains from models like DeepSeek-R1 inside collapsible `<think>` process cards.
+- **Syntax Highlighting & Copy**: Clean markdown rendering with one-click code copy buttons.
+- **Connection Helper Modals**: Provides quick copy-paste configuration commands for curl, Python SDK, Obsidian, and desktop chat apps.
+
+---
+
 ### Interactive Terminal Chat (`wola.chat`)
 
 Chat directly with your local AI node in the terminal:
@@ -432,6 +472,30 @@ Output includes:
 - **Ping Latency**: Confirms round-trip connectivity.
 - **ASCII QR Code**: Scan with your phone camera to open or copy the URL.
 - **Automatic Clipboard Sync**: The URL is copied to your clipboard automatically.
+
+---
+
+### Air-Gapped Offline & Hotspot Pairing (`wola.local` / `wola.hotspot`)
+
+When you are off the grid, traveling, or without internet access, Wolarc can operate entirely air-gapped across local network interfaces:
+
+```bash
+# Display all detected local addresses, Web UI link, and terminal QR code
+wola.local
+# or
+wola.hotspot
+
+# Display standalone QR code for scanning from mobile cameras
+wola.local qr
+
+# Copy local URL to clipboard
+wola.local copy
+```
+
+#### Supported Offline Scenarios:
+1. **Local Wi-Fi Network**: Any computer or mobile phone on the same Wi-Fi router can access Wolarc at `http://192.168.1.X:5000/`.
+2. **Android Portable Hotspot**: Turn on your Android phone's Hotspot (no cellular data needed). Connect your laptop or tablet to the hotspot and access Wolarc at `http://192.168.43.1:5000/`.
+3. **USB Reverse Tethering / RNDIS**: Connect a USB cable directly from your Android phone to your PC and browse to `http://192.168.42.129:5000/`.
 
 ---
 

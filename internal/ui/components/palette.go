@@ -26,6 +26,7 @@ const (
 	ActionGotoKnow     PaletteActionID = "goto_know"
 	ActionGotoLogs     PaletteActionID = "goto_logs"
 	ActionReloadConfig PaletteActionID = "reload_config"
+	ActionToggleTUI    PaletteActionID = "toggle_tui"
 	ActionQuitApp      PaletteActionID = "quit_app"
 )
 
@@ -66,6 +67,7 @@ func NewPaletteModel() PaletteModel {
 		{ID: ActionGotoKnow, Title: "View: Vector Knowledge", Description: "Inspect vector database & test retrieval", Category: "Navigation"},
 		{ID: ActionGotoLogs, Title: "View: Realtime Logs", Description: "Follow live multi-stream service logs", Category: "Navigation"},
 		{ID: ActionReloadConfig, Title: "Reload Configuration", Description: "Re-read ~/.wolarc variables into memory", Category: "Config"},
+		{ID: ActionToggleTUI, Title: "Toggle Bubble Tea TUI Mode", Description: "Switch between Go TUI and classic CLI suite (ENABLE_TUI)", Category: "Config"},
 		{ID: ActionQuitApp, Title: "Quit Wolarc TUI", Description: "Exit application back to shell", Category: "Application"},
 	}
 

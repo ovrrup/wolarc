@@ -3,6 +3,11 @@ import numpy as np
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 
+import sys
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
 try:
     from web_ui import WEB_UI_HTML
 except Exception:
@@ -288,14 +293,19 @@ def build_rag_prompt(messages, cfg):
     else:
         log_think_event("RAG_MATCH", "None (Using base model intelligence)")
 
+    last_user_idx = None
+    for idx in range(len(messages) - 1, -1, -1):
+        if messages[idx].get("role") == "user":
+            last_user_idx = idx
+            break
+
     modified_messages = [{"role": "system", "content": cfg["SYSTEM_PROMPT"]}]
-    for msg in messages:
+    for idx, msg in enumerate(messages):
         if msg.get("role") != "system":
-            if msg.get("content") == last_user_msg and context_text:
-                modified_messages.append({
-                    "role": "user",
-                    "content": f"{context_text}Question: {last_user_msg}"
-                })
+            if idx == last_user_idx and context_text:
+                new_msg = dict(msg)
+                new_msg["content"] = f"{context_text}Question: {last_user_msg}"
+                modified_messages.append(new_msg)
             else:
                 modified_messages.append(msg)
     return modified_messages
@@ -326,30 +336,33 @@ def get_active_tunnel_url():
 def get_local_interfaces():
     interfaces = []
     seen_ips = set()
-    try:
-        out = subprocess.check_output(['ifconfig'], stderr=subprocess.DEVNULL).decode()
-        cur_iface = None
-        for line in out.splitlines():
-            if line and not line.startswith(' '):
-                cur_iface = line.split(':')[0].strip()
-            m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
-            if m:
-                ip = m.group(1)
-                if ip != '127.0.0.1' and not ip.startswith('169.254.'):
-                    if ip not in seen_ips:
-                        seen_ips.add(ip)
-                        label = 'Local Wi-Fi / LAN'
-                        if cur_iface and ('ap' in cur_iface or 'swlan' in cur_iface):
-                            label = 'Mobile Hotspot'
-                        elif cur_iface and ('rndis' in cur_iface or 'usb' in cur_iface):
-                            label = 'USB Tethering'
-                        elif ip.startswith('192.168.43.'):
-                            label = 'Mobile Hotspot'
-                        elif ip.startswith('192.168.42.'):
-                            label = 'USB Tethering'
-                        interfaces.append({'iface': cur_iface or 'net', 'ip': ip, 'label': label})
-    except Exception:
-        pass
+    for cmd in [['ifconfig'], ['ip', '-4', 'addr']]:
+        try:
+            out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode()
+            cur_iface = None
+            for line in out.splitlines():
+                if line and not line.startswith(' '):
+                    cur_iface = line.split(':')[0].split()[0].strip()
+                m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
+                if m:
+                    ip = m.group(1)
+                    if ip != '127.0.0.1' and not ip.startswith('169.254.'):
+                        if ip not in seen_ips:
+                            seen_ips.add(ip)
+                            label = 'Local Wi-Fi / LAN'
+                            if cur_iface and ('ap' in cur_iface or 'swlan' in cur_iface):
+                                label = 'Mobile Hotspot'
+                            elif cur_iface and ('rndis' in cur_iface or 'usb' in cur_iface):
+                                label = 'USB Tethering'
+                            elif ip.startswith('192.168.43.'):
+                                label = 'Mobile Hotspot'
+                            elif ip.startswith('192.168.42.'):
+                                label = 'USB Tethering'
+                            interfaces.append({'iface': cur_iface or 'net', 'ip': ip, 'label': label})
+            if interfaces:
+                break
+        except Exception:
+            pass
 
     for probe in ['8.8.8.8', '192.168.43.254', '192.168.1.1', '10.255.255.254']:
         try:
@@ -386,17 +399,29 @@ def local_info():
     port = int(cfg.get("AGENT_PORT", 5000))
     hotspot_url = f"http://192.168.43.1:{port}"
     primary_url = f"http://{interfaces[0]['ip']}:{port}" if interfaces else hotspot_url
+    lan_url = ""
+    usb_url = ""
+    for iface in interfaces:
+        ip = iface["ip"]
+        if ip.startswith("192.168.42.") or "rndis" in iface["iface"] or "usb" in iface["iface"]:
+            usb_url = f"http://{ip}:{port}"
+        elif ip != "192.168.43.1" and not lan_url:
+            lan_url = f"http://{ip}:{port}"
+
     return jsonify({
         "status": "online",
         "port": port,
         "interfaces": interfaces,
         "primary_url": primary_url,
         "hotspot_url": hotspot_url,
+        "lan_url": lan_url,
+        "usb_url": usb_url,
         "api_endpoint": f"{primary_url}/v1",
         "tunnel_url": get_active_tunnel_url()
     })
 
 @app.route("/health", methods=["GET"])
+@app.route("/v1/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
 
@@ -529,7 +554,7 @@ def chat_completions():
         "max_tokens": body.get("max_tokens", 2048),
         "stream": True
     }
-    for opt in ["top_p", "presence_penalty", "frequency_penalty", "stop"]:
+    for opt in ["top_p", "presence_penalty", "frequency_penalty", "stop", "tools", "tool_choice", "response_format", "functions", "function_call", "seed", "user"]:
         if opt in body:
             payload[opt] = body[opt]
 
@@ -604,6 +629,8 @@ def chat_completions():
     # Aggregated fallback when client does not stream
     full_content = ""
     last_timings = None
+    finish_reason = "stop"
+    tool_calls_map = {}
     try:
         for raw_line in upstream.iter_lines():
             if not raw_line:
@@ -616,11 +643,34 @@ def chat_completions():
                         parsed = json.loads(data_str)
                         choices = parsed.get("choices", [])
                         if choices:
-                            delta = choices[0].get("delta", {})
+                            c = choices[0]
+                            delta = c.get("delta", {})
                             token = delta.get("content", "") or delta.get("reasoning_content", "")
                             if token:
                                 full_content += token
                                 log_think_token(token)
+                            if c.get("finish_reason"):
+                                finish_reason = c["finish_reason"]
+                            tc_list = delta.get("tool_calls", [])
+                            for tc in tc_list:
+                                idx = tc.get("index", 0)
+                                if idx not in tool_calls_map:
+                                    tool_calls_map[idx] = {
+                                        "id": tc.get("id", f"call_{idx}"),
+                                        "type": tc.get("type", "function"),
+                                        "function": {
+                                            "name": tc.get("function", {}).get("name", ""),
+                                            "arguments": tc.get("function", {}).get("arguments", "")
+                                        }
+                                    }
+                                else:
+                                    if "id" in tc and tc["id"]:
+                                        tool_calls_map[idx]["id"] = tc["id"]
+                                    fn = tc.get("function", {})
+                                    if "name" in fn and fn["name"]:
+                                        tool_calls_map[idx]["function"]["name"] += fn["name"]
+                                    if "arguments" in fn and fn["arguments"]:
+                                        tool_calls_map[idx]["function"]["arguments"] += fn["arguments"]
                         if "timings" in parsed:
                             last_timings = parsed["timings"]
                     except Exception:
@@ -636,13 +686,20 @@ def chat_completions():
     if last_timings:
         record_metrics(last_timings, cfg)
 
+    msg_obj = {"role": "assistant", "content": full_content}
+    if tool_calls_map:
+        sorted_indices = sorted(tool_calls_map.keys())
+        msg_obj["tool_calls"] = [tool_calls_map[i] for i in sorted_indices]
+        if finish_reason == "stop":
+            finish_reason = "tool_calls"
+
     return jsonify({
         "choices": [{
             "index": 0,
-            "message": {"role": "assistant", "content": full_content},
-            "finish_reason": "stop"
+            "message": msg_obj,
+            "finish_reason": finish_reason
         }],
-        "model": "local-agent"
+        "model": body.get("model") or "local-agent"
     })
 
 if __name__ == "__main__":
@@ -672,6 +729,7 @@ if __name__ == "__main__":
             "bind": f"0.0.0.0:{port}",
             "workers": 1,
             "threads": 8,
+            "worker_class": "gthread",
             "timeout": 300,
             "graceful_timeout": 5,
             "accesslog": None,

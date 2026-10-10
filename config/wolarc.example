@@ -31,3 +31,7 @@ TEMPERATURE="0.3"
 SIMILARITY_THRESHOLD="0.35"
 TOP_K="2"
 SYSTEM_PROMPT="You are an intelligent assistant. Ground facts using the provided notes, but blend them with your own base intelligence."
+
+# User Interface Preferences
+ENABLE_TUI="true"       # 'true' launches Go Bubble Tea TUI; 'false' uses classic CLI suite
+
