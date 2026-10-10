@@ -75,7 +75,7 @@ func NewAppModel(cfg *config.Config, initialTab int) AppModel {
 		Height:    24,
 		StartTime: time.Now(),
 		IsOnline:  online,
-		TunnelURL: config.GetTunnelURL(cfg),
+		TunnelURL: config.GetTunnelURL(),
 	}
 }
 
@@ -141,7 +141,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.TickCount++
 		services := system.CheckAllServices(m.Config.ChatPort, m.Config.EmbedPort)
 		m.IsOnline = services.ChatServer.Running || services.AgentGateway.Running
-		m.TunnelURL = config.GetTunnelURL(m.Config)
+		m.TunnelURL = config.GetTunnelURL()
 
 		if m.ActiveTab == TabDashboard {
 			m.Dashboard.Refresh()
@@ -230,10 +230,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// 4. Tab cycling when text inputs are not focused
+		// 4. Tab cycling when text inputs / modal sub-modes are not focused
 		isTextInputActive := (m.ActiveTab == TabChat && m.Chat.TextArea.Focused()) ||
-			(m.ActiveTab == TabModels && m.Models.Importing) ||
-			(m.ActiveTab == TabKnowledge && m.Knowledge.IsSearching)
+			(m.ActiveTab == TabModels && (m.Models.Importing || m.Models.Deleting)) ||
+			(m.ActiveTab == TabKnowledge && m.Knowledge.IsSearching) ||
+			(m.ActiveTab == TabLogs && m.Logs.IsFiltering) ||
+			(m.ActiveTab == TabDashboard && m.Dashboard.Tuning)
 
 		if !isTextInputActive {
 			switch msg.String() {
@@ -268,8 +270,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// 5. Dashboard-specific single-key shortcuts
-		if m.ActiveTab == TabDashboard {
+		// 5. Dashboard-specific single-key shortcuts (when not in tuning mode)
+		if m.ActiveTab == TabDashboard && !m.Dashboard.Tuning {
 			switch msg.String() {
 			case "c":
 				m.ActiveTab = TabChat
@@ -332,7 +334,7 @@ func (m *AppModel) handlePaletteAction(action components.PaletteActionID) {
 		m.SetToast("Restarting Wolarc stack (wola.rs)...", components.ToastInfo)
 		m.Dashboard.Refresh()
 	case components.ActionCopyURL:
-		url := config.GetTunnelURL(m.Config)
+		url := config.GetTunnelURL()
 		if url != "" {
 			_ = clipboard.WriteAll(url)
 			_ = exec.Command("termux-clipboard-set", url).Run()

@@ -24,6 +24,7 @@ var (
 	ColorSuccess = ColorGreen
 	ColorAccent  = ColorPurple
 	ColorWarning = ColorYellow
+	ColorDim     = ColorSubtext
 
 	// Base Layout Styles
 	DocStyle = lipgloss.NewStyle().

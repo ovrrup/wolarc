@@ -20,6 +20,8 @@ type LocalModelItem struct {
 	SizeMB   int64
 	IsChat   bool
 	IsEmbed  bool
+	Quant    string
+	Tier     string
 }
 
 type CuratedModel struct {
@@ -31,15 +33,15 @@ type CuratedModel struct {
 }
 
 type ModelsModel struct {
-	Config       *config.Config
-	LocalModels  []LocalModelItem
+	Config        *config.Config
+	LocalModels   []LocalModelItem
 	SelectedIndex int
-	Importing    bool
-	ImportInput  textinput.Model
-	ImportAction string // "choose", "move", "copy"
-	StatusMsg    string
-	Width        int
-	Height       int
+	Importing     bool
+	ImportInput   textinput.Model
+	Deleting      bool
+	StatusMsg     string
+	Width         int
+	Height        int
 }
 
 var CuratedCatalog = []CuratedModel{
@@ -80,9 +82,29 @@ var CuratedCatalog = []CuratedModel{
 	},
 }
 
+func detectQuant(name string) string {
+	upper := strings.ToUpper(name)
+	quants := []string{"Q4_K_M", "Q4_K_S", "Q5_K_M", "Q5_K_S", "Q8_0", "Q4_0", "Q4_1", "Q2_K", "Q3_K_M", "FP16", "BF16"}
+	for _, q := range quants {
+		if strings.Contains(upper, q) {
+			return q
+		}
+	}
+	return "Standard"
+}
+
+func detectTier(sizeMB int64) string {
+	if sizeMB < 1500 {
+		return "🟢 Ultra-Lightweight (Optimal for 4GB devices)"
+	} else if sizeMB < 3000 {
+		return "🟡 Balanced (Optimal for 6GB-8GB devices)"
+	}
+	return "🔴 Heavyweight (Recommended for 12GB+ devices)"
+}
+
 func NewModelsModel(cfg *config.Config) ModelsModel {
 	ti := textinput.New()
-	ti.Placeholder = "Enter path to .gguf file or directory..."
+	ti.Placeholder = "Enter path to .gguf file or directory to import..."
 	ti.CharLimit = 512
 	ti.Width = 60
 
@@ -98,24 +120,35 @@ func NewModelsModel(cfg *config.Config) ModelsModel {
 
 func (m *ModelsModel) Refresh() {
 	var list []LocalModelItem
-	files, err := os.ReadDir(m.Config.ModelsDir)
+	_ = os.MkdirAll(m.Config.ModelsDir, 0755)
+
+	entries, err := os.ReadDir(m.Config.ModelsDir)
 	if err == nil {
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(strings.ToLower(f.Name()), ".gguf") {
+		for _, e := range entries {
+			if e.IsDir() {
 				continue
 			}
-			info, err := f.Info()
-			var sizeMB int64
-			if err == nil {
-				sizeMB = info.Size() / (1024 * 1024)
+			lower := strings.ToLower(e.Name())
+			if strings.HasSuffix(lower, ".gguf") {
+				info, err := e.Info()
+				var sizeMB int64
+				if err == nil {
+					sizeMB = info.Size() / (1024 * 1024)
+				}
+				p := filepath.Join(m.Config.ModelsDir, e.Name())
+				isChat := (e.Name() == m.Config.ChatModel)
+				isEmbed := (e.Name() == m.Config.EmbedModel)
+
+				list = append(list, LocalModelItem{
+					Name:    e.Name(),
+					Path:    p,
+					SizeMB:  sizeMB,
+					IsChat:  isChat,
+					IsEmbed: isEmbed,
+					Quant:   detectQuant(e.Name()),
+					Tier:    detectTier(sizeMB),
+				})
 			}
-			list = append(list, LocalModelItem{
-				Name:    f.Name(),
-				Path:    filepath.Join(m.Config.ModelsDir, f.Name()),
-				SizeMB:  sizeMB,
-				IsChat:  f.Name() == m.Config.ChatModel,
-				IsEmbed: f.Name() == m.Config.EmbedModel,
-			})
 		}
 	}
 	m.LocalModels = list
@@ -152,6 +185,28 @@ func (m *ModelsModel) Update(msg tea.Msg) (ModelsModel, tea.Cmd) {
 		return *m, cmd
 	}
 
+	if m.Deleting {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "y", "Y":
+				if len(m.LocalModels) > 0 && m.SelectedIndex < len(m.LocalModels) {
+					sel := m.LocalModels[m.SelectedIndex]
+					_ = os.Remove(sel.Path)
+					m.StatusMsg = fmt.Sprintf("Successfully deleted model: %s", sel.Name)
+					m.Refresh()
+				}
+				m.Deleting = false
+				return *m, nil
+			case "n", "N", "esc":
+				m.Deleting = false
+				m.StatusMsg = "Deletion cancelled"
+				return *m, nil
+			}
+		}
+		return *m, nil
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -163,12 +218,12 @@ func (m *ModelsModel) Update(msg tea.Msg) (ModelsModel, tea.Cmd) {
 			if m.SelectedIndex < len(m.LocalModels)-1 {
 				m.SelectedIndex++
 			}
-		case "c":
+		case "enter", "c":
 			if len(m.LocalModels) > 0 && m.SelectedIndex < len(m.LocalModels) {
 				sel := m.LocalModels[m.SelectedIndex]
 				_ = config.SetConfigKey("CHAT_MODEL", sel.Name)
 				m.Config.ChatModel = sel.Name
-				m.StatusMsg = fmt.Sprintf("Activated Chat LLM: %s (restart wola.rs to apply)", sel.Name)
+				m.StatusMsg = fmt.Sprintf("Activated Chat Engine: %s (restart wola.rs to apply)", sel.Name)
 				m.Refresh()
 			}
 		case "e":
@@ -176,7 +231,7 @@ func (m *ModelsModel) Update(msg tea.Msg) (ModelsModel, tea.Cmd) {
 				sel := m.LocalModels[m.SelectedIndex]
 				_ = config.SetConfigKey("EMBED_MODEL", sel.Name)
 				m.Config.EmbedModel = sel.Name
-				m.StatusMsg = fmt.Sprintf("Activated Embed Model: %s (restart wola.rs to apply)", sel.Name)
+				m.StatusMsg = fmt.Sprintf("Activated Embedding Engine: %s (restart wola.rs to apply)", sel.Name)
 				m.Refresh()
 			}
 		case "i":
@@ -185,11 +240,11 @@ func (m *ModelsModel) Update(msg tea.Msg) (ModelsModel, tea.Cmd) {
 			m.StatusMsg = "Enter storage path to import local GGUF file or directory"
 		case "d":
 			if len(m.LocalModels) > 0 && m.SelectedIndex < len(m.LocalModels) {
-				sel := m.LocalModels[m.SelectedIndex]
-				_ = os.Remove(sel.Path)
-				m.StatusMsg = fmt.Sprintf("Deleted model: %s", sel.Name)
-				m.Refresh()
+				m.Deleting = true
 			}
+		case "r":
+			m.Refresh()
+			m.StatusMsg = "Refreshed model list"
 		}
 	}
 
@@ -227,7 +282,6 @@ func (m *ModelsModel) handleImport(srcPath string) {
 		if f == dest {
 			continue
 		}
-		// Copy file
 		if err := copyFile(f, dest); err == nil {
 			count++
 		}
@@ -255,17 +309,17 @@ func copyFile(src, dst string) error {
 }
 
 func (m ModelsModel) View() string {
-	var sb strings.Builder
-
-	cardWidth := m.Width - 4
-	if cardWidth < 40 {
-		cardWidth = 40
+	cardWidth := (m.Width - 6) / 2
+	if cardWidth < 36 {
+		cardWidth = 36
 	}
 
-	sb.WriteString(styles.CardHeader.Render("📦 LOCAL MODEL INVENTORY") + "\n\n")
+	// 1. LOCAL INVENTORY CARD
+	var inventorySb strings.Builder
+	inventorySb.WriteString(styles.CardHeader.Render("📦 LOCAL GGUF REPOSITORY") + "\n\n")
 
 	if len(m.LocalModels) == 0 {
-		sb.WriteString(styles.DescStyle.Render("No .gguf models found in ~/models.\nPress [i] to import a local model or download using wola.gt.\n\n"))
+		inventorySb.WriteString(styles.DescStyle.Render("No .gguf models found in ~/models.\nPress [i] to import a local model or download via wola.gt.\n\n"))
 	} else {
 		for i, mod := range m.LocalModels {
 			cursor := "  "
@@ -288,41 +342,95 @@ func (m ModelsModel) View() string {
 			}
 
 			sizeStr := fmt.Sprintf("%d MB", mod.SizeMB)
-			line := fmt.Sprintf("%s%-14s %-45s %10s", cursor, tag, nameStyle.Render(mod.Name), styles.DescStyle.Render(sizeStr))
-			sb.WriteString(line + "\n")
+			line := fmt.Sprintf("%s%-13s %-24s %7s\n",
+				cursor,
+				tag,
+				nameStyle.Render(truncate(mod.Name, 24)),
+				styles.DescStyle.Render(sizeStr),
+			)
+			inventorySb.WriteString(line)
 		}
-		sb.WriteString("\n")
 	}
+	inventoryCard := styles.CardStyle.Width(cardWidth).Render(inventorySb.String())
 
-	// Curated catalog recommendations
-	sb.WriteString(styles.CardHeader.Render("🌟 RECOMMENDED CURATED MODELS (Hugging Face)") + "\n\n")
+	// 2. MODEL DETAIL INSPECTOR CARD
+	var detailSb strings.Builder
+	detailSb.WriteString(styles.CardHeader.Render("🔍 MODEL INSPECTOR & TELEMETRY") + "\n\n")
+
+	if len(m.LocalModels) > 0 && m.SelectedIndex < len(m.LocalModels) {
+		sel := m.LocalModels[m.SelectedIndex]
+		ramReqMB := sel.SizeMB + 750
+		ramBar := styles.GradientBar(float64(ramReqMB)/8192.0*100.0, 12)
+
+		detailSb.WriteString(fmt.Sprintf(
+			"• Model Name  : %s\n"+
+				"• Quantization: %s\n"+
+				"• Disk Space  : %s\n"+
+				"• Est. RAM Req: %s  %s\n"+
+				"• Device Tier : %s\n"+
+				"• Active Role : %s\n\n"+
+				"• Full Path   :\n  %s",
+			styles.KeyStyle.Render(truncate(sel.Name, 32)),
+			styles.ValStyle.Render(sel.Quant),
+			styles.ValStyle.Render(fmt.Sprintf("%d MB (%.2f GB)", sel.SizeMB, float64(sel.SizeMB)/1024.0)),
+			styles.KeyStyle.Render(fmt.Sprintf("~%d MB", ramReqMB)),
+			ramBar,
+			sel.Tier,
+			getRoleBadge(sel.IsChat, sel.IsEmbed),
+			styles.DescStyle.Render(sel.Path),
+		))
+	} else {
+		detailSb.WriteString(styles.DescStyle.Render("Select a model on the left to view architecture parameters and memory footprint."))
+	}
+	detailCard := styles.CardStyle.Width(cardWidth).Render(detailSb.String())
+
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, inventoryCard, "  ", detailCard)
+
+	// 3. CURATED RECOMMENDATIONS BAR
+	var catalogSb strings.Builder
+	catalogSb.WriteString(styles.CardHeader.Render("🌟 CURATED MOBILE-TESTED CATALOG (Hugging Face)") + "\n")
 	for _, c := range CuratedCatalog {
-		sb.WriteString(fmt.Sprintf(" • %s  %s  %s\n   %s\n",
+		catalogSb.WriteString(fmt.Sprintf(" • %-30s %s  %s\n",
 			styles.KeyStyle.Render(c.Name),
 			styles.BadgeInfo.Render(c.Size),
-			styles.DescStyle.Render("("+c.Repo+")"),
-			styles.SubtitleStyle.Render(c.Description),
+			styles.DescStyle.Render("— "+c.Description),
 		))
 	}
+	catalogCard := styles.CardStyle.Width(m.Width - 4).Render(catalogSb.String())
 
-	if m.Importing {
-		sb.WriteString("\n" + styles.KeyStyle.Render("Import Model Path: ") + m.ImportInput.View() + "\n")
+	// 4. Modals & Import Bar
+	var interactiveBar string
+	if m.Deleting && len(m.LocalModels) > 0 {
+		sel := m.LocalModels[m.SelectedIndex]
+		interactiveBar = styles.ToastWarningStyle.Render(fmt.Sprintf(" ⚠ Are you sure you want to delete '%s'? [y: Yes / n: Cancel] ", sel.Name))
+	} else if m.Importing {
+		interactiveBar = styles.CardActiveStyle.Width(m.Width - 4).Render(
+			"Import Path: " + m.ImportInput.View() + "\n" + styles.DescStyle.Render("Press Enter to copy into ~/models or Esc to abort"),
+		)
+	} else if m.StatusMsg != "" {
+		interactiveBar = styles.DescStyle.Render("Notice: " + m.StatusMsg)
 	}
-
-	if m.StatusMsg != "" {
-		sb.WriteString("\n" + styles.BadgeWarning.Render("Notice:") + " " + m.StatusMsg + "\n")
-	}
-
-	inventoryCard := styles.CardStyle.Width(cardWidth).Render(sb.String())
 
 	hints := fmt.Sprintf(
-		" %s Set Chat  •  %s Set Embed  •  %s Import Local GGUF  •  %s Delete  •  %s Tab",
-		styles.KeyStyle.Render("[c]"),
+		" %s Set Chat  •  %s Set Embed  •  %s Import Local GGUF  •  %s Delete  •  %s Reload",
+		styles.KeyStyle.Render("[Enter/c]"),
 		styles.KeyStyle.Render("[e]"),
 		styles.KeyStyle.Render("[i]"),
 		styles.KeyStyle.Render("[d]"),
-		styles.KeyStyle.Render("Tab"),
+		styles.KeyStyle.Render("[r]"),
 	)
+	hintsBar := styles.ActionStyle.Render(hints)
 
-	return lipgloss.JoinVertical(lipgloss.Left, inventoryCard, styles.DescStyle.Render(hints))
+	return lipgloss.JoinVertical(lipgloss.Left, topRow, catalogCard, interactiveBar, hintsBar)
+}
+
+func getRoleBadge(isChat, isEmbed bool) string {
+	if isChat && isEmbed {
+		return styles.BadgeInfo.Render("Active Chat + Active Embed")
+	} else if isChat {
+		return styles.BadgeOnline.Render("Active Chat Engine")
+	} else if isEmbed {
+		return styles.BadgeWarning.Render("Active Embed Engine")
+	}
+	return styles.DescStyle.Render("Standby (Inactive)")
 }

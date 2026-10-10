@@ -35,6 +35,7 @@ type Config struct {
 	TopK                int
 	SystemPrompt        string
 	SourceDir           string
+	ChunkSize           int
 }
 
 func ExpandHome(path string) string {
@@ -78,6 +79,7 @@ func DefaultConfig() *Config {
 		TopK:                2,
 		SystemPrompt:        "Answer directly and accurately.",
 		SourceDir:           "",
+		ChunkSize:           1200,
 	}
 }
 
@@ -172,6 +174,10 @@ func LoadConfig() *Config {
 			cfg.SystemPrompt = val
 		case "WOLA_SOURCE_DIR":
 			cfg.SourceDir = ExpandHome(val)
+		case "CHUNK_SIZE":
+			if n, err := strconv.Atoi(val); err == nil {
+				cfg.ChunkSize = n
+			}
 		}
 	}
 

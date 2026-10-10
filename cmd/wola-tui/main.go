@@ -41,7 +41,7 @@ func printStatus(cfg *config.Config) {
 	services := system.CheckAllServices(cfg.ChatPort, cfg.EmbedPort)
 	ram := system.GetRAMInfo()
 	metrics := config.GetMetrics(cfg)
-	tunnelURL := config.GetTunnelURL(cfg)
+	tunnelURL := config.GetTunnelURL()
 
 	fmt.Println("=================================================================")
 	fmt.Printf("                   WOLARC NODE STATUS (%s)\n", Version)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -211,6 +212,17 @@ func (m *ChatModel) Update(msg tea.Msg) (ChatModel, tea.Cmd) {
 			m.renderConversation()
 			return *m, nil
 		}
+
+		if msg.String() == "ctrl+y" {
+			// Copy last assistant message
+			for i := len(m.Messages) - 1; i >= 0; i-- {
+				if m.Messages[i].Role == "assistant" {
+					_ = clipboard.WriteAll(m.Messages[i].Content)
+					break
+				}
+			}
+			return *m, nil
+		}
 	}
 
 	var taCmd tea.Cmd
@@ -269,12 +281,16 @@ func (m *ChatModel) renderConversation() {
 
 func (m ChatModel) View() string {
 	vpBox := styles.CardStyle.Width(m.Width - 2).Height(m.Viewport.Height + 2).Render(m.Viewport.View())
-	inputBox := styles.CardStyle.Width(m.Width - 2).Render(m.TextArea.View())
+
+	charCount := len(m.TextArea.Value())
+	inputLabel := styles.DescStyle.Render(fmt.Sprintf(" Prompt (%d chars • ~%d tokens)", charCount, charCount/4))
+	inputBox := styles.CardStyle.Width(m.Width - 2).Render(inputLabel + "\n" + m.TextArea.View())
 
 	hints := fmt.Sprintf(
-		" %s Send  •  %s Clear  •  %s Fold/Unfold Reasoning  •  %s Abort Stream",
+		" %s Send  •  %s Clear  •  %s Copy Answer  •  %s Fold Reasoning  •  %s Abort",
 		styles.KeyStyle.Render("Enter"),
 		styles.KeyStyle.Render("Ctrl+L"),
+		styles.KeyStyle.Render("Ctrl+Y"),
 		styles.KeyStyle.Render("Ctrl+T"),
 		styles.KeyStyle.Render("Ctrl+C"),
 	)
