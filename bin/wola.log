@@ -37,8 +37,17 @@ case "$1" in
     "indexer"|"rag")
         tail_log "Document Indexer" "$HOME/indexer.log"
         ;;
-    "think")
-        tail_log "Thinking Stream" "$HOME/.wola_thinking.log"
+    "-h"|"--help"|"help")
+        echo -e "${C_BOLD}Wolarc Log Monitor (wola.log / wola.l)${C_RESET}"
+        echo "Usage:"
+        echo "  wola.log                     View summary snapshot of all service logs"
+        echo "  wola.log chat                Follow chat engine log live"
+        echo "  wola.log embed               Follow embedding engine log live"
+        echo "  wola.log agent               Follow agent API gateway log live"
+        echo "  wola.log tunnel              Follow remote tunnel log live"
+        echo "  wola.log indexer             Follow note indexer log live"
+        echo "  wola.log think               Follow thinking stream live"
+        exit 0
         ;;
     *)
         echo -e "${C_CYAN}╭────────────────────────────────────────────────────────────────╮${C_RESET}"

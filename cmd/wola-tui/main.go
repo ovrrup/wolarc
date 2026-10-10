@@ -22,21 +22,26 @@ USAGE:
     wola [SUBCOMMAND] [FLAGS]
     wola-tui [SUBCOMMAND] [FLAGS]
 
-SUBCOMMANDS:
-    (no args)          Launch Unified Go & Bubble Tea TUI
-    dashboard, d       Launch TUI with System Dashboard (default)
-    chat, c            Launch TUI directly in Interactive RAG Chat
-    models, m          Launch TUI Model Management & Local Importer
-    knowledge, k, i    Launch TUI Knowledge Base & Semantic Tester
-    logs, l            Launch TUI Multi-Stream Realtime Log Tailer
-    status             Print quick non-interactive node telemetry
+COMMAND PAIRS (Casual / Technical):
     start, r           Start all services (chat, embed, agent, tunnel)
     stop, k            Stop all services cleanly
     restart, rs        Restart all services
-    url, link          Display active Gateway Tunnel URL
-    local, offline     Display Local Offline Gateway & Hotspot Pairing QR
-    think, th [on|off|status] Toggle or view model reasoning thinking state
-    tui [on|off|status] Toggle or view default launch mode (TUI vs CLI suite)
+    check, status      Display quick non-interactive node telemetry
+    dashboard, d       System Dashboard & Live Telemetry
+    chat, c            Interactive RAG Chat client (or pass query: wola chat "text")
+    models, m          Model Manager & GGUF switcher
+    store, gt          In-terminal Model Store & Downloader
+    knowledge, i       Vector Knowledge Base & Semantic Search tester
+    bench, b           Hardware benchmark & inference tok/s tester
+    log, l             Multi-Stream Realtime Log Tailer
+    think, th          Toggle or view reasoning thinking stream
+    link, url          Display active Gateway Tunnel URL & QR code
+    hotspot, local     Display Local Offline Gateway & Hotspot Pairing
+    config, t          Inspect or update configuration settings
+    update, u          Check and install updates from GitHub
+    uninstall, purge   Clean removal & system reset
+    help, h            Display help and command cheat sheet
+    ui, tui            Toggle default launch mode (TUI vs CLI suite)
 
 HOTKEYS INSIDE TUI:
     Tab / Shift+Tab    Cycle between views
@@ -111,24 +116,24 @@ func main() {
 	} else {
 		arg := strings.ToLower(os.Args[1])
 		switch arg {
-		case "-h", "--help", "help":
+		case "-h", "--help", "help", "h":
 			printHelp()
 			return
 		case "-v", "--version", "version":
 			fmt.Printf("wola-tui %s\n", Version)
 			return
-		case "status":
+		case "status", "check":
 			printStatus(cfg)
 			return
-		case "start", "r", "boot":
+		case "start", "r":
 			fmt.Println("[*] Booting Wolarc AI node stack (wola.r)...")
 			if err := system.StartServices(); err != nil {
 				fmt.Printf("Error starting services: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println("✓ Wolarc stack boot initiated. Run 'wola status' or 'wola' to monitor.")
+			fmt.Println("✓ Wolarc stack boot initiated. Run 'wola check' or 'wola' to monitor.")
 			return
-		case "stop", "k", "kill":
+		case "stop", "k":
 			fmt.Println("[*] Stopping Wolarc services (wola.k)...")
 			if err := system.StopServices(); err != nil {
 				fmt.Printf("Error stopping services: %v\n", err)
@@ -144,22 +149,22 @@ func main() {
 			}
 			fmt.Println("✓ Wolarc restart initiated.")
 			return
-		case "url", "link", "tunnel":
+		case "link", "url":
 			tURL := config.GetTunnelURL()
 			if tURL != "" {
 				fmt.Printf("Gateway Tunnel URL : %s\n", tURL)
 				fmt.Printf("OpenAI API Endpoint: %s/v1\n", tURL)
 			} else {
-				fmt.Println("Gateway Tunnel is currently inactive. Run 'wola r' to start services.")
+				fmt.Println("Gateway Tunnel is currently inactive. Run 'wola start' to start services.")
 			}
 			return
-		case "local", "offline", "hotspot", "lan":
+		case "hotspot", "local":
 			cmd := exec.Command("wola.url", "local")
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()
 			return
-		case "tui":
+		case "ui", "tui":
 			if len(os.Args) > 2 {
 				sub := strings.ToLower(os.Args[2])
 				switch sub {
@@ -183,7 +188,7 @@ func main() {
 						statusStr = "disabled (false)"
 					}
 					fmt.Printf("Go Bubble Tea TUI Status: %s\n", statusStr)
-					fmt.Println("Usage: wola tui [on|off|status]")
+					fmt.Println("Usage: wola ui [on|off|status] (or wola tui [on|off|status])")
 					return
 				}
 			}
@@ -192,7 +197,7 @@ func main() {
 				statusStr = "disabled (false)"
 			}
 			fmt.Printf("Go Bubble Tea TUI Status: %s\n", statusStr)
-			fmt.Println("Usage: wola tui [on|off|status]")
+			fmt.Println("Usage: wola ui [on|off|status] (or wola tui [on|off|status])")
 			return
 		case "bench", "b":
 			cmd := exec.Command("wola.bench", os.Args[2:]...)
@@ -208,37 +213,37 @@ func main() {
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()
 			return
-		case "tuner", "t":
+		case "config", "t":
 			cmd := exec.Command("wola.t", os.Args[2:]...)
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()
 			return
-		case "store", "gt", "gh":
+		case "store", "gt":
 			cmd := exec.Command("wola.gt", os.Args[2:]...)
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()
 			return
-		case "update", "upgrade", "u":
+		case "update", "u":
 			cmd := exec.Command("wola.u", os.Args[2:]...)
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()
 			return
-		case "purge", "destroy", "selfdestruct", "nuke":
+		case "uninstall", "purge":
 			cmd := exec.Command("wola.purge", os.Args[2:]...)
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()
 			return
-		case "d", "dash", "dashboard":
-			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
-				cmd := exec.Command("wola.d")
+		case "dashboard", "d":
+			if len(os.Args) > 2 || (!cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui")) {
+				cmd := exec.Command("wola.d", os.Args[2:]...)
 				cmd.Stdin = os.Stdin
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
@@ -246,8 +251,8 @@ func main() {
 				return
 			}
 			initialTab = ui.TabDashboard
-		case "c", "chat":
-			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+		case "chat", "c":
+			if len(os.Args) > 2 || (!cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui")) {
 				cmd := exec.Command("wola.chat", os.Args[2:]...)
 				cmd.Stdin = os.Stdin
 				cmd.Stdout = os.Stdout
@@ -256,8 +261,8 @@ func main() {
 				return
 			}
 			initialTab = ui.TabChat
-		case "m", "model", "models":
-			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+		case "models", "m":
+			if len(os.Args) > 2 || (!cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui")) {
 				cmd := exec.Command("wola.m", os.Args[2:]...)
 				cmd.Stdin = os.Stdin
 				cmd.Stdout = os.Stdout
@@ -266,8 +271,8 @@ func main() {
 				return
 			}
 			initialTab = ui.TabModels
-		case "know", "knowledge", "i", "index":
-			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+		case "knowledge", "i":
+			if len(os.Args) > 2 || (!cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui")) {
 				cmd := exec.Command("wola.i", os.Args[2:]...)
 				cmd.Stdin = os.Stdin
 				cmd.Stdout = os.Stdout
@@ -276,8 +281,8 @@ func main() {
 				return
 			}
 			initialTab = ui.TabKnowledge
-		case "l", "log", "logs":
-			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
+		case "log", "l":
+			if len(os.Args) > 2 || (!cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui")) {
 				cmd := exec.Command("wola.log", os.Args[2:]...)
 				cmd.Stdin = os.Stdin
 				cmd.Stdout = os.Stdout
@@ -287,8 +292,8 @@ func main() {
 			}
 			initialTab = ui.TabLogs
 		default:
-			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") && !strings.HasSuffix(os.Args[0], "wola.tui") {
-				cmd := exec.Command("wola-h")
+			if !cfg.EnableTUI && !strings.HasSuffix(os.Args[0], "wola-tui") {
+				cmd := exec.Command("wola-h", os.Args[1:]...)
 				cmd.Stdin = os.Stdin
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr

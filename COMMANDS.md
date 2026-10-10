@@ -4,30 +4,32 @@
 
 ---
 
-## Command Quick Index
+## Command Quick Index (Casual / Technical Pairs)
 
-| Command | Aliases | Description |
-| [`wola`](#2-telemetry-dashboard--modern-tui) | `wola-tui`, `wola.tui` | Unified Go & Bubble Tea TUI (`dashboard`, `chat`, `models`, `knowledge`, `logs`) and root CLI |
-| [`wola tui`](#2-telemetry-dashboard--modern-tui) | `wolarc tui` | Toggle default UI mode (`on` / `off` / `status`) between Go TUI and classic CLI |
-| [`wola.r`](#1-system-lifecycle--process-management) | `wolarc r`, `wolarc start` | Start all AI node services (chat, embed, API, tunnel, wake-lock) |
-| [`wola.k`](#1-system-lifecycle--process-management) | `wolarc k`, `wolarc stop` | Stop all AI node services cleanly and release wake-locks |
-| [`wola.rs`](#1-system-lifecycle--process-management) | `wolarc rs`, `wolarc restart` | Graceful restart cycle (shutdown -> cooldown -> boot) |
-| [`wolarc status`](#1-system-lifecycle--process-management) | `wola status` | Display active process PIDs, listening ports, and switch status |
-| [`wola.d`](#2-telemetry-dashboard--modern-tui) | `wola.tui`, `wola-tui`, `wolarc d` | Launch the high-performance Go Bubble Tea telemetry dashboard |
-| [`wola.url`](#3-remote-gateway--connectivity) | `wola.link`, `wolarc url` | Show public tunnel URL, QR code, ping latency & copy endpoint |
-| [`wola.local`](#3-remote-gateway--connectivity) | `wola.hotspot`, `wolarc local` | Offline local gateway, zero-dependency Web Chat UI, and QR pairing |
-| [`wola.chat`](#4-interactive-terminal-chat-client) | `wola.c`, `wolarc c` | Interactive CLI chat client with live token streaming and RAG citations |
-| [`wola think`](#5-deep-thinking-stream-viewer) | `wola.th`, `wolarc think` | Toggle model reasoning thinking (`on` / `off` / `status`) or view stream |
-| [`wola.th`](#5-deep-thinking-stream-viewer) | `wolarc th` | Real-time streaming monitor for model reasoning chains (`<think>`) |
-| [`wola.gt`](#6-model-store--local-gguf-importer) | `wola.gh`, `wolarc gt` | Model Store & local GGUF file importer (HuggingFace / storage) |
-| [`wola.m`](#6-model-store--local-gguf-importer) | `wolarc m` | List models in `~/models` or import `.gguf` files via CLI |
-| [`wola.i`](#7-vector-knowledge-base--rag-indexer) | `wolarc i` | Vector indexer manager (`status`, `add <path>`, `search <query>`) |
-| [`wola.bench`](#8-hardware-benchmarking--optimization) | `wola.b`, `wolarc b` | Benchmark tokens/sec across CPU threads and auto-tune config |
-| [`wola.t`](#9-parameter-tuner--configuration) | `wolarc t` | View and edit runtime inference hyperparameters in `~/.wolarc` |
-| [`wola.log`](#10-live-log-monitoring--diagnostics) | `wola.logs`, `wolarc log` | Live multiplexed log viewer for chat, embed, agent, and tunnels |
-| [`wola.u`](#11-software-updates--maintenance) | `wola.upgrade`, `wolarc u` | Check for updates, pull releases, and update binaries |
-| [`wola-h`](#12-interactive-command-center-wizard) | `wola.h` | Interactive menu wizard with status overview and quick launchers |
-| [`wola.purge`](#13-system-file-deletion--self-destruct-engine) | `wola.destroy`, `wola.selfdestruct`, `wola.nuke` | Multi-level file deletion, cleanup, and complete self-destruction |
+> **Strict 1-to-1 Pairing Rule**: Every command in Wolarc has exactly **ONE Casual Name** (friendly, descriptive) and **ONE Technical Name** (terse, developer-friendly). Redundant legacy aliases have been completely removed.
+
+| Feature / Action | Casual Name | Technical Name | Subcommands | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Unified TUI / Suite** | `wola` | `wola-tui` | `wola` / `wola-tui` | Unified Go & Bubble Tea TUI (`dashboard`, `chat`, `models`, `knowledge`, `logs`) |
+| **UI Mode Switch** | `wola.ui` | `wola.tui` | `wola ui` / `wola tui` | Toggle default interface mode (`on` / `off` / `status`) between Go TUI and classic CLI |
+| **Start Services** | `wola.start` | `wola.r` | `wola start` / `wola r` | Start all AI node services (chat, embed, API, tunnel, wake-lock) |
+| **Stop Services** | `wola.stop` | `wola.k` | `wola stop` / `wola k` | Stop all AI node services cleanly and release wake-locks |
+| **Restart Stack** | `wola.restart` | `wola.rs` | `wola restart` / `wola rs` | Graceful restart cycle (shutdown -> cooldown -> boot) |
+| **Service Status** | `wola.check` | `wola.status` | `wola check` / `wola status` | Display active process PIDs, listening ports, and switch status |
+| **Telemetry Dashboard**| `wola.dashboard`| `wola.d` | `wola dashboard` / `wola d` | Full-screen telemetry dashboard (or `--once` for instant snapshot) |
+| **Interactive Chat** | `wola.chat` | `wola.c` | `wola chat` / `wola c` | Interactive CLI chat or one-shot query (`wola.chat "query"`) |
+| **Model Inventory** | `wola.models` | `wola.m` | `wola models` / `wola m` | List models in `~/models` or switch active Chat/Embed roles |
+| **Model Store / Hub** | `wola.store` | `wola.gt` | `wola store` / `wola gt` | Model Store & local GGUF file importer (HuggingFace / storage) |
+| **Vector Knowledge Base**| `wola.knowledge`| `wola.i` | `wola knowledge` / `wola i` | Vector indexer manager (`status`, `add <path>`, `search <query>`) |
+| **Hardware Benchmark** | `wola.bench` | `wola.b` | `wola bench` / `wola b` | Benchmark tokens/sec across CPU threads and auto-tune config |
+| **Log Monitoring** | `wola.log` | `wola.l` | `wola log` / `wola l` | Live multiplexed log viewer for chat, embed, agent, and tunnels |
+| **Thinking Reasoning** | `wola.think` | `wola.th` | `wola think` / `wola th` | Toggle reasoning tokens (`on` / `off` / `status`) or follow stream |
+| **Remote Gateway Link**| `wola.link` | `wola.url` | `wola link` / `wola url` | Show public tunnel URL, QR code, ping latency & copy endpoint |
+| **Local Hotspot Gateway**| `wola.hotspot`| `wola.local` | `wola hotspot` / `wola local`| Offline local gateway, zero-dependency Web Chat UI, and QR pairing |
+| **Parameter Tuner** | `wola.config` | `wola.t` | `wola config` / `wola t` | View and edit runtime inference hyperparameters in `~/.wolarc` |
+| **Software Update** | `wola.update` | `wola.u` | `wola update` / `wola u` | Check for updates, pull releases, and upgrade binaries |
+| **Command Center Wizard**| `wola.help` | `wola.h` | `wola help` / `wola h` | Interactive menu wizard with status overview and quick launchers |
+| **System Uninstaller** | `wola.uninstall`| `wola.purge` | `wola uninstall` / `wola purge`| Multi-level file deletion, cleanup, and complete self-destruction |
 
 ---
 
@@ -244,14 +246,14 @@ wola.th
 
 ## 6. Model Store & Local GGUF Importer
 
-### `wola.gt` / `wola.gh`
+### `wola.store` / `wola.gt`
 Interactive Model Hub for downloading and managing GGUF models.
 
 ```bash
 # Launch interactive Model Hub
-wola.gt
+wola.store
 # or
-wola.gh
+wola.gt
 ```
 
 #### Options:
@@ -435,15 +437,17 @@ Displays live node status, active public URL, and an interactive menu of numbere
 
 ## 13. System File Deletion & Self-Destruct Engine
 
-### `wola.purge`
+### `wola.uninstall` / `wola.purge`
 The system deletion and cleanup engine.
 
-> **Command Aliases**: `wola.purge`, `wola.destroy`, `wola.selfdestruct`, `wola.nuke`, `wolarc purge`, `wolarc destroy`, `wolarc selfdestruct`, `wolarc nuke`.
+> **Command Pair**: `wola.uninstall` (Casual) <-> `wola.purge` (Technical). Subcommands: `wola uninstall` / `wola purge`.
 
 This command stops all running processes, removes lock files, and erases files and directories associated with Wolarc. It provides **3 distinct hardness levels** to control how thoroughly data is removed.
 
 ```bash
 # Syntax
+wola.uninstall [OPTIONS] [LEVEL]
+# or
 wola.purge [OPTIONS] [LEVEL]
 ```
 

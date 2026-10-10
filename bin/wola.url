@@ -42,6 +42,8 @@ copy_clipboard() {
     elif command -v wl-copy >/dev/null 2>&1; then
         echo -n "$url" | wl-copy
         echo -e "  ${C_GREEN}✓ Copied URL to clipboard!${C_RESET}"
+    else
+        echo -e "  ${C_DIM}• Copy link: ${url}${C_RESET}"
     fi
 }
 
@@ -320,6 +322,17 @@ case "$1" in
             primary_local_url=$(python3 -c "import json; data=json.loads('''$net_json'''); print(data[0]['url'] if data else 'http://192.168.43.1:${PORT}')")
             show_qr "$primary_local_url"
         fi
+        ;;
+    "-h"|"--help"|"help")
+        echo -e "${C_BOLD}Wolarc Gateway URL & Local Network Manager (wola.url / wola.link)${C_RESET}"
+        echo "Usage:"
+        echo "  wola.url (or wola.link)         Show public tunnel URL, latency & QR code"
+        echo "  wola.url local (or wola.hotspot) Show offline local WiFi & hotspot connection"
+        echo "  wola.url copy                   Copy active URL to clipboard"
+        echo "  wola.url qr                     Display enlarged terminal QR code"
+        echo "  wola.url switch <provider>      Switch tunnel to serveo or pinggy"
+        echo "  wola.url reconnect              Force reconnect active tunnel"
+        exit 0
         ;;
     *)
         echo -e "${C_CYAN}╭────────────────────────────────────────────────────────────────╮${C_RESET}"

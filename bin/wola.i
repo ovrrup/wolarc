@@ -209,10 +209,23 @@ else:
             ls -lh "$CHATS_DIR" 2>/dev/null || echo "[-] No chat sessions saved yet."
         fi
         ;;
+    "-h"|"--help"|"help")
+        echo -e "${C_BOLD}Wola Vector Indexer & Knowledge Manager${C_RESET}"
+        echo "Usage:"
+        echo "  wola.knowledge status     (Casual) Inspect documents and chunk statistics"
+        echo "  wola.i status             (Technical)"
+        echo "  wola.i add <file|dir>     Import notes, media, audio, images or code into knowledge base"
+        echo "  wola.i search \"<query>\"   Test vector similarity retrieval"
+        echo "  wola.i sync               Trigger incremental scan of knowledge directory"
+        echo "  wola.i rebuild            Purge database and re-vectorize from scratch"
+        echo "  wola.i list               List raw source files in knowledge & chats directories"
+        exit 0
+        ;;
     *)
         echo -e "${C_BOLD}Wola Vector Indexer & Knowledge Manager${C_RESET}"
         echo "Usage:"
-        echo "  wola.i status             Inspect documents and chunk statistics"
+        echo "  wola.knowledge status     (Casual) Inspect documents and chunk statistics"
+        echo "  wola.i status             (Technical)"
         echo "  wola.i add <file|dir>     Import notes, media, audio, images or code into knowledge base"
         echo "  wola.i search \"<query>\"   Test vector similarity retrieval"
         echo "  wola.i sync               Trigger incremental scan of knowledge directory"

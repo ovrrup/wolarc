@@ -89,6 +89,14 @@ def stream_thinking():
 def handle_cli_args():
     if len(sys.argv) > 1:
         arg = sys.argv[1].lower()
+        if arg in ["-h", "--help", "help"]:
+            print(f"{C_BOLD}Wolarc Real-Time Reasoning & Thinking Monitor{C_RESET}")
+            print("Usage:")
+            print("  wola.th (or wola.think)         Follow live reasoning stream (<think> tokens)")
+            print("  wola.th on                      Enable model thinking / deep reasoning")
+            print("  wola.th off                     Disable thinking (direct fast answer mode)")
+            print("  wola.th status                  Check current thinking state")
+            sys.exit(0)
         cfg_path = os.path.expanduser("~/.wolarc")
         if arg in ["on", "enable", "1", "true"]:
             lines = []

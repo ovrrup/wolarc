@@ -745,22 +745,70 @@ deploy_binaries() {
         chmod +x "$TARGET_BIN/$fname"
     done
 
-    # Create convenient command symlinks
+    # Remove any stale legacy aliases
+    rm -f "$TARGET_BIN/wola.destroy" "$TARGET_BIN/wola.selfdestruct" "$TARGET_BIN/wola.nuke" \
+          "$TARGET_BIN/wola.gh" "$TARGET_BIN/wola.upgrade" "$TARGET_BIN/wola.logs" 2>/dev/null || true
+
+    # Create unified Technical <-> Casual command pairs (exactly one alias per command)
+    # Start: wola.r (technical) <-> wola.start (casual)
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.r"
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.start"
+
+    # Stop: wola.k (technical) <-> wola.stop (casual)
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.k"
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.stop"
+
+    # Restart: wola.rs (technical) <-> wola.restart (casual)
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.rs"
-    ln -sf "$TARGET_BIN/wola-h" "$TARGET_BIN/wola.h"
-    ln -sf "$TARGET_BIN/wola.u" "$TARGET_BIN/wola.upgrade"
-    ln -sf "$TARGET_BIN/wola.url" "$TARGET_BIN/wola.link"
-    ln -sf "$TARGET_BIN/wola.url" "$TARGET_BIN/wola.local"
-    ln -sf "$TARGET_BIN/wola.url" "$TARGET_BIN/wola.hotspot"
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.restart"
+
+    # Status: wola.status (technical) <-> wola.check (casual)
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.status"
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.check"
+
+    # Dashboard: wola.d (technical) <-> wola.dashboard (casual)
+    ln -sf "$TARGET_BIN/wola.d" "$TARGET_BIN/wola.dashboard"
+
+    # Chat: wola.c (technical) <-> wola.chat (casual)
     ln -sf "$TARGET_BIN/wola.chat" "$TARGET_BIN/wola.c"
+
+    # Models: wola.m (technical) <-> wola.models (casual)
+    ln -sf "$TARGET_BIN/wola.m" "$TARGET_BIN/wola.models"
+
+    # Store: wola.gt (technical) <-> wola.store (casual)
+    ln -sf "$TARGET_BIN/wola.gt" "$TARGET_BIN/wola.store"
+
+    # Knowledge: wola.i (technical) <-> wola.knowledge (casual)
+    ln -sf "$TARGET_BIN/wola.i" "$TARGET_BIN/wola.knowledge"
+
+    # Benchmark: wola.b (technical) <-> wola.bench (casual)
     ln -sf "$TARGET_BIN/wola.bench" "$TARGET_BIN/wola.b"
-    ln -sf "$TARGET_BIN/wola.log" "$TARGET_BIN/wola.logs"
-    ln -sf "$TARGET_BIN/wola.gt" "$TARGET_BIN/wola.gh"
-    ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.destroy"
-    ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.selfdestruct"
-    ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.nuke"
+
+    # Logs: wola.l (technical) <-> wola.log (casual)
+    ln -sf "$TARGET_BIN/wola.log" "$TARGET_BIN/wola.l"
+
+    # Thinking: wola.th (technical) <-> wola.think (casual)
+    ln -sf "$TARGET_BIN/wola.th" "$TARGET_BIN/wola.think"
+
+    # Remote Link: wola.url (technical) <-> wola.link (casual)
+    ln -sf "$TARGET_BIN/wola.url" "$TARGET_BIN/wola.link"
+
+    # Offline Hotspot: wola.local (technical) <-> wola.hotspot (casual)
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.local"
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.hotspot"
+
+    # Settings / Config: wola.t (technical) <-> wola.config (casual)
+    ln -sf "$TARGET_BIN/wola.t" "$TARGET_BIN/wola.config"
+
+    # Updates: wola.u (technical) <-> wola.update (casual)
+    ln -sf "$TARGET_BIN/wola.u" "$TARGET_BIN/wola.update"
+
+    # Uninstall: wola.purge (technical) <-> wola.uninstall (casual)
+    ln -sf "$TARGET_BIN/wola.purge" "$TARGET_BIN/wola.uninstall"
+
+    # Help: wola.h (technical) <-> wola.help (casual)
+    ln -sf "$TARGET_BIN/wola-h" "$TARGET_BIN/wola.h"
+    ln -sf "$TARGET_BIN/wola-h" "$TARGET_BIN/wola.help"
 
     # Build and deploy Go Bubble Tea TUI if permitted
     if [ "$INSTALL_GO_TUI" = "true" ]; then
@@ -797,14 +845,19 @@ deploy_binaries() {
 
         if [ -f "$TARGET_BIN/wola-tui" ]; then
             ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola.tui"
+            ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola.ui"
             ln -sf "$TARGET_BIN/wola-tui" "$TARGET_BIN/wola"
-            echo -e "  ${C_GREEN}✓ Integrated Go TUI: 'wola' and 'wola.tui' -> ${TARGET_BIN}/wola-tui${C_RESET}"
+            echo -e "  ${C_GREEN}✓ Integrated Go TUI: 'wola', 'wola.tui' & 'wola.ui' -> ${TARGET_BIN}/wola-tui${C_RESET}"
         else
+            ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.tui"
+            ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.ui"
             ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola"
         fi
     else
         echo -e "  ${C_DIM}• Skipping Go TUI compilation & deployment (Classic CLI mode active).${C_RESET}"
-        rm -f "$TARGET_BIN/wola.tui" "$TARGET_BIN/wola-tui" 2>/dev/null || true
+        rm -f "$TARGET_BIN/wola.tui" "$TARGET_BIN/wola.ui" "$TARGET_BIN/wola-tui" 2>/dev/null || true
+        ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.tui"
+        ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.ui"
         ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola"
         echo -e "  ${C_GREEN}✓ Linked classic CLI suite: 'wola' -> ${TARGET_BIN}/wolarc${C_RESET}"
     fi
@@ -814,8 +867,25 @@ deploy_binaries() {
         git -C "$DIR" rev-parse --short HEAD > "$HOME/.wola_version" 2>/dev/null || true
     fi
 
-    echo -e "  ${C_GREEN}✓ Installed commands into ${TARGET_BIN}:${C_RESET}"
-    echo -e "    wola  wola.r  wola.k  wola.rs  wola.d  wola.url  wola.chat  wola.bench  wola.log  wola.th  wola.gt  wola.gh  wola.t  wola.m  wola.i  wola.u  wola-h"
+    echo -e "  ${C_GREEN}✓ Installed command pairs into ${TARGET_BIN}:${C_RESET}"
+    echo -e "    Start      : wola.start     / wola.r"
+    echo -e "    Stop       : wola.stop      / wola.k"
+    echo -e "    Restart    : wola.restart   / wola.rs"
+    echo -e "    Status     : wola.check     / wola.status"
+    echo -e "    Dashboard  : wola.dashboard / wola.d"
+    echo -e "    Chat       : wola.chat      / wola.c"
+    echo -e "    Models     : wola.models    / wola.m"
+    echo -e "    Store      : wola.store     / wola.gt"
+    echo -e "    Knowledge  : wola.knowledge / wola.i"
+    echo -e "    Benchmark  : wola.bench     / wola.b"
+    echo -e "    Logs       : wola.log       / wola.l"
+    echo -e "    Thinking   : wola.think     / wola.th"
+    echo -e "    Gateway    : wola.link      / wola.url"
+    echo -e "    Hotspot    : wola.hotspot   / wola.local"
+    echo -e "    Config     : wola.config    / wola.t"
+    echo -e "    Update     : wola.update    / wola.u"
+    echo -e "    Uninstall  : wola.uninstall / wola.purge"
+    echo -e "    Help       : wola.help      / wola.h"
 }
 
 # -------------------------------------------------------------
@@ -825,23 +895,25 @@ post_install() {
     echo -e "\n${C_CYAN}=================================================================${C_RESET}"
     echo -e "  ${C_BOLD}${C_GREEN}✓ WOLARC INSTALLATION COMPLETE!${C_RESET}"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
-    echo -e "  ${C_BOLD}Commands Cheatsheet:${C_RESET}"
-    if [ "$INSTALL_GO_TUI" = "true" ] && [ -x "$TARGET_BIN/wola-tui" ]; then
-        echo -e "    ${C_GREEN}wola${C_RESET}       • Launch Unified Go & Bubble Tea TUI (Everything in one place)"
-    else
-        echo -e "    ${C_GREEN}wola${C_RESET}       • Launch Classic Interactive Command Center (wola-h)"
-    fi
-    echo -e "    ${C_GREEN}wola.r${C_RESET}     • Start all services (chat, embed, agent API, tunnel)"
-    echo -e "    ${C_RED}wola.k${C_RESET}     • Stop all services cleanly"
-    echo -e "    ${C_CYAN}wola.d${C_RESET}     • Open real-time Telemetry Dashboard"
-    echo -e "    ${C_CYAN}wola.url${C_RESET}   • Remote Gateway URL, latency ping & QR code"
-    echo -e "    ${C_GREEN}wola.chat${C_RESET}  • Interactive CLI chat client with note citations"
-    echo -e "    ${C_YELLOW}wola.bench${C_RESET} • Measure token speed & auto-tune hardware threads"
-    echo -e "    ${C_DIM}wola.log${C_RESET}   • Unified live log monitor & diagnostics"
-    echo -e "    ${C_MAGENTA}wola.th${C_RESET}    • Real-time Thinking Stream Viewer"
-    echo -e "    ${C_GREEN}wola.gt${C_RESET}    • Model Store & Local GGUF Importer (wola.gh)"
-    echo -e "    ${C_YELLOW}wola.u${C_RESET}     • Built-in Update Checker and Installer"
-    echo -e "    ${C_YELLOW}wola-h${C_RESET}     • Interactive Command Center"
+    echo -e "  ${C_BOLD}Command Cheatsheet (Casual / Technical):${C_RESET}"
+    echo -e "    ${C_GREEN}wola.start${C_RESET}     / ${C_DIM}wola.r${C_RESET}        • Start all services (chat, embed, agent API, tunnel)"
+    echo -e "    ${C_RED}wola.stop${C_RESET}      / ${C_DIM}wola.k${C_RESET}        • Stop all services cleanly"
+    echo -e "    ${C_YELLOW}wola.restart${C_RESET}   / ${C_DIM}wola.rs${C_RESET}       • Relaunch all background daemons"
+    echo -e "    ${C_CYAN}wola.check${C_RESET}     / ${C_DIM}wola.status${C_RESET}   • Service process PIDs & port status"
+    echo -e "    ${C_CYAN}wola.dashboard${C_RESET} / ${C_DIM}wola.d${C_RESET}        • Open real-time Telemetry Dashboard"
+    echo -e "    ${C_GREEN}wola.chat${C_RESET}      / ${C_DIM}wola.c${C_RESET}        • Interactive CLI chat client & one-shot query"
+    echo -e "    ${C_YELLOW}wola.models${C_RESET}    / ${C_DIM}wola.m${C_RESET}        • Model manager & GGUF switcher"
+    echo -e "    ${C_GREEN}wola.store${C_RESET}     / ${C_DIM}wola.gt${C_RESET}       • Model Store & Local GGUF Importer"
+    echo -e "    ${C_YELLOW}wola.knowledge${C_RESET} / ${C_DIM}wola.i${C_RESET}        • Vector knowledge base & note indexer"
+    echo -e "    ${C_YELLOW}wola.bench${C_RESET}     / ${C_DIM}wola.b${C_RESET}        • Measure token speed & auto-tune threads"
+    echo -e "    ${C_DIM}wola.log${C_RESET}       / ${C_DIM}wola.l${C_RESET}        • Unified live multi-stream log monitor"
+    echo -e "    ${C_MAGENTA}wola.think${C_RESET}     / ${C_DIM}wola.th${C_RESET}       • Real-time Reasoning Stream Viewer"
+    echo -e "    ${C_CYAN}wola.link${C_RESET}      / ${C_DIM}wola.url${C_RESET}      • Remote Gateway URL, latency & QR code"
+    echo -e "    ${C_CYAN}wola.hotspot${C_RESET}   / ${C_DIM}wola.local${C_RESET}    • Air-Gapped Hotspot & LAN Web UI (Offline)"
+    echo -e "    ${C_YELLOW}wola.config${C_RESET}    / ${C_DIM}wola.t${C_RESET}        • Configuration parameter tuner"
+    echo -e "    ${C_GREEN}wola.update${C_RESET}    / ${C_DIM}wola.u${C_RESET}        • Built-in Update Checker and Installer"
+    echo -e "    ${C_RED}wola.uninstall${C_RESET} / ${C_DIM}wola.purge${C_RESET}    • Discrete uninstaller & system reset"
+    echo -e "    ${C_CYAN}wola.help${C_RESET}      / ${C_DIM}wola.h${C_RESET}        • Interactive Command Center"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
 
     # Check if models exist in ~/models

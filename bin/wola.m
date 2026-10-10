@@ -77,6 +77,19 @@ with open(config_path, "w") as f:
 }
 
 case "$1" in
+    "-h"|"--help"|"help")
+        echo "=================================================="
+        echo "               WOLA MODEL INVENTORY"
+        echo "=================================================="
+        echo "Usage:"
+        echo "  wola.models                   (Casual) -> List models"
+        echo "  wola.m                        (Technical)"
+        echo "  wola.m chat <filename.gguf>   -> Set Chat LLM"
+        echo "  wola.m embed <filename.gguf>  -> Set Embedding Model"
+        echo "  wola.m import [path]          -> Import local GGUF model"
+        echo "=================================================="
+        exit 0
+        ;;
     "chat")
         [ -z "$2" ] && echo "[-] Specify model filename." && exit 1
         set_model "chat" "$2"
@@ -89,8 +102,6 @@ case "$1" in
         shift
         if command -v wola.gt >/dev/null 2>&1; then
             exec wola.gt import "$@"
-        elif command -v wola.gh >/dev/null 2>&1; then
-            exec wola.gh import "$@"
         else
             m_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
             exec "$m_dir/wola.gt" import "$@"

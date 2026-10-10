@@ -227,6 +227,20 @@ interactive_flow() {
 }
 
 case "$1" in
+    "-h"|"--help"|"help")
+        echo -e "${C_BOLD}Wolarc Update Engine${C_RESET}"
+        echo "Checks for updates from GitHub and upgrades local binaries and scripts."
+        echo ""
+        echo "Usage:"
+        echo "  wola.update [command]    (Casual)"
+        echo "  wola.u [command]         (Technical)"
+        echo ""
+        echo "Commands:"
+        echo "  check                    Check GitHub for latest release/commit"
+        echo "  apply / install          Download and apply updates immediately"
+        echo "  version                  Display currently installed commit SHA"
+        exit 0
+        ;;
     "check"|"status")
         check_updates "false"
         ;;

@@ -2,6 +2,8 @@
 
 This guide provides step-by-step instructions for installing, configuring, running, and connecting to your **Wolarc** Autonomous Local RAG AI Node on Android (Termux) or Linux.
 
+> 📖 **Comprehensive System Manual**: For deep architecture details, vector math, offline hotspot networking, and the complete 1-to-1 Technical & Casual command matrix, see [**System Architecture & Reference Manual (`DOCUMENTATION.md`)**](DOCUMENTATION.md).
+
 ---
 
 ## Table of Contents

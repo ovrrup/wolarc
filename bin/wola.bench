@@ -107,6 +107,17 @@ def benchmark_inference():
         return None
 
 def main():
+    if any(a in sys.argv for a in ["-h", "--help", "help"]):
+        print(f"{C_BOLD}Wolarc Hardware & Inference Benchmark (wola.bench / wola.b){C_RESET}")
+        print("Usage:")
+        print("  wola.bench (or wola.b)      Run hardware check, token speed test & thread tuner")
+        print("  wola.bench --apply (-y)     Run benchmark and automatically apply optimal settings")
+        print("  wola.bench --check          Display hardware diagnostics only (no inference test)")
+        sys.exit(0)
+
+    only_check = "--check" in sys.argv
+    auto_apply = any(a in sys.argv for a in ["--apply", "-y", "-a"])
+
     print(f"{C_CYAN}╭────────────────────────────────────────────────────────────────╮{C_RESET}")
     print(f"{C_CYAN}│{C_RESET}               {C_BOLD}WOLARC HARDWARE & INFERENCE BENCHMARK{C_RESET}            {C_CYAN}│{C_RESET}")
     print(f"{C_CYAN}╰────────────────────────────────────────────────────────────────╯{C_RESET}")
@@ -118,28 +129,29 @@ def main():
     print(f"  • Total RAM     : {C_BOLD}{tot_ram} MB{C_RESET}")
     print(f"  • Available RAM : {C_BOLD}{avail_ram} MB{C_RESET}")
 
-    # Check if chat engine is up
-    try:
-        r = requests.get(f"http://127.0.0.1:{CHAT_PORT}/props", timeout=1)
-        engine_online = (r.status_code == 200)
-    except Exception:
-        engine_online = False
+    if not only_check:
+        # Check if chat engine is up
+        try:
+            r = requests.get(f"http://127.0.0.1:{CHAT_PORT}/props", timeout=1)
+            engine_online = (r.status_code == 200)
+        except Exception:
+            engine_online = False
 
-    if not engine_online:
-        print(f"\n  {C_YELLOW}[!] Chat engine on port {CHAT_PORT} is not running.{C_RESET}")
-        print("      Start Wola with 'wola.r' to run live speed benchmarks.")
-        print(f"\n{C_CYAN}──────────────────────────────────────────────────────────────────{C_RESET}")
-    else:
-        results = benchmark_inference()
-        if results:
-            gen_spd, eval_spd, ttft, n_tok = results
-            print(f"\n  {C_BOLD}BENCHMARK RESULTS:{C_RESET}")
-            print(f"  • Generation Speed  : {C_GREEN}{C_BOLD}{gen_spd:.2f} tokens/sec{C_RESET}")
-            if eval_spd > 0:
-                print(f"  • Prompt Eval Speed : {C_CYAN}{eval_spd:.2f} tokens/sec{C_RESET}")
-            print(f"  • Time to First Tok : {C_YELLOW}{ttft:.2f}s{C_RESET}")
-            print(f"  • Benchmark Sample  : {n_tok} tokens")
-            print(f"{C_CYAN}──────────────────────────────────────────────────────────────────{C_RESET}")
+        if not engine_online:
+            print(f"\n  {C_YELLOW}[!] Chat engine on port {CHAT_PORT} is not running.{C_RESET}")
+            print("      Start Wola with 'wola.r' or 'wola.start' to run live speed benchmarks.")
+            print(f"\n{C_CYAN}──────────────────────────────────────────────────────────────────{C_RESET}")
+        else:
+            results = benchmark_inference()
+            if results:
+                gen_spd, eval_spd, ttft, n_tok = results
+                print(f"\n  {C_BOLD}BENCHMARK RESULTS:{C_RESET}")
+                print(f"  • Generation Speed  : {C_GREEN}{C_BOLD}{gen_spd:.2f} tokens/sec{C_RESET}")
+                if eval_spd > 0:
+                    print(f"  • Prompt Eval Speed : {C_CYAN}{eval_spd:.2f} tokens/sec{C_RESET}")
+                print(f"  • Time to First Tok : {C_YELLOW}{ttft:.2f}s{C_RESET}")
+                print(f"  • Benchmark Sample  : {n_tok} tokens")
+                print(f"{C_CYAN}──────────────────────────────────────────────────────────────────{C_RESET}")
 
     # Optimal Configuration Recommendations
     print(f"  {C_BOLD}OPTIMAL HARDWARE RECOMMENDATIONS:{C_RESET}")
@@ -160,7 +172,17 @@ def main():
     print(f"  • Flash Attention       : {C_GREEN}auto{C_RESET} (Reduces RAM & boosts prompt eval)")
     print(f"{C_CYAN}================================================================={C_RESET}")
 
-    apply_ans = input(f"\nApply recommended settings (CHAT_THREADS={rec_threads}, CHAT_CTX={rec_ctx}) to ~/.wolarc? (y/N): ").strip().lower()
+    apply_ans = "n"
+    if only_check:
+        return
+    elif auto_apply:
+        apply_ans = "y"
+    elif sys.stdin.isatty():
+        try:
+            apply_ans = input(f"\nApply recommended settings (CHAT_THREADS={rec_threads}, CHAT_CTX={rec_ctx}) to ~/.wolarc? (y/N): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            pass
+
     if apply_ans == "y":
         os.system(f"wola.t CHAT_THREADS {rec_threads}")
         os.system(f"wola.t CHAT_CTX {rec_ctx}")

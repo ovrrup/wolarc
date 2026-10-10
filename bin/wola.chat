@@ -81,36 +81,44 @@ def stream_chat(history, session_id):
         sys.stdout.write(f"\n{C_GREEN}{C_BOLD}Wola > {C_RESET}")
         sys.stdout.flush()
 
-        for line in res.iter_lines():
-            if not line:
-                continue
-            decoded = line.decode("utf-8", errors="replace")
-            if decoded.startswith("data: "):
-                data_str = decoded[6:].strip()
-                if data_str == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                    choices = chunk.get("choices", [])
-                    if choices:
-                        delta = choices[0].get("delta", {})
-                        token = delta.get("content", "") or delta.get("reasoning_content", "")
-                        if token:
-                            token_count += 1
-                            full_response += token
-                            # Handle thinking tag formatting in stream
-                            if "<think>" in token:
-                                sys.stdout.write(f"\n{C_MAGENTA}{C_DIM}[Thinking...] ")
-                                in_think = True
-                                token = token.replace("<think>", "")
-                            if "</think>" in token:
-                                in_think = False
-                                token = token.replace("</think>", f"{C_RESET}\n\n{C_GREEN}")
-                            
-                            sys.stdout.write(token)
-                            sys.stdout.flush()
-                except Exception:
-                    pass
+        try:
+            for line in res.iter_lines():
+                if not line:
+                    continue
+                decoded = line.decode("utf-8", errors="replace")
+                if decoded.startswith("data: "):
+                    data_str = decoded[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        choices = chunk.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            token = delta.get("content", "") or delta.get("reasoning_content", "")
+                            if token:
+                                token_count += 1
+                                full_response += token
+                                # Handle thinking tag formatting in stream
+                                if "<think>" in token:
+                                    sys.stdout.write(f"\n{C_MAGENTA}{C_DIM}[Thinking...] ")
+                                    in_think = True
+                                    token = token.replace("<think>", "")
+                                elif "</think>" in token:
+                                    in_think = False
+                                    token = token.replace("</think>", f"{C_RESET}\n\n{C_GREEN}")
+                                
+                                sys.stdout.write(token)
+                                sys.stdout.flush()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        finally:
+            try:
+                res.close()
+            except Exception:
+                pass
 
         elapsed = max(0.01, time.time() - start_time)
         tok_speed = token_count / elapsed
@@ -119,14 +127,34 @@ def stream_chat(history, session_id):
         return full_response
 
     except Exception as e:
-        print(f"\n{C_RED}[-] Connection error: {e}{C_RESET}\n")
-        return ""
+        if not full_response:
+            print(f"\n{C_RED}[-] Connection error: {e}{C_RESET}\n")
+            return ""
+        return full_response
 
 def main():
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+        if arg in ["-h", "--help", "help"]:
+            print(f"{C_BOLD}Wolarc Terminal Chat Client (wola.chat / wola.c){C_RESET}")
+            print("Usage:")
+            print("  wola.chat (or wola.c)           Open interactive REPL chat session")
+            print("  wola.chat \"<query>\"             Ask a single question and stream answer to stdout")
+            sys.exit(0)
+
     if not check_gateway():
         print(f"{C_RED}[-] Error: Wola Agent Gateway (Port {AGENT_PORT}) is not reachable.{C_RESET}")
-        print("    Start the Wola stack first with: 'wola.r'")
+        print("    Start the Wola stack first with: 'wola.r' or 'wola.start'")
         sys.exit(1)
+
+    # One-shot CLI query mode if query arguments were provided
+    if len(sys.argv) > 1:
+        query = " ".join(sys.argv[1:]).strip()
+        session_id = f"cli_{time.strftime('%Y%m%d_%H%M%S')}"
+        history = [{"role": "user", "content": query}]
+        reply = stream_chat(history, session_id)
+        print("")
+        sys.exit(0 if reply else 1)
 
     session_id = f"cli_{time.strftime('%Y%m%d_%H%M%S')}"
     status = get_status_info()

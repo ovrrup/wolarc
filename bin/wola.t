@@ -3,6 +3,22 @@
 CONFIG="$HOME/.wolarc"
 [ ! -f "$CONFIG" ] && touch "$CONFIG"
 
+if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "help" ]; then
+    echo "=================================================="
+    echo "             WOLA CONFIGURATION TUNER"
+    echo "=================================================="
+    echo "Usage:"
+    echo "  wola.config [KEY] [VALUE]   (Casual)"
+    echo "  wola.t [KEY] [VALUE]        (Technical)"
+    echo ""
+    echo "Examples:"
+    echo "  wola.config                 -> Show all configuration variables"
+    echo "  wola.t TEMPERATURE 0.7      -> Set sampling temperature to 0.7"
+    echo "  wola.t CHAT_THREADS 4       -> Set CPU inference threads"
+    echo "=================================================="
+    exit 0
+fi
+
 if [ -z "$1" ]; then
     echo "=================================================="
     echo "             CURRENT WOLA CONFIGURATION"
@@ -13,9 +29,12 @@ if [ -z "$1" ]; then
         echo "  $line"
     done < "$CONFIG"
     echo "=================================================="
-    echo "Usage: wola.t <KEY> <VALUE>"
-    echo "Example: wola.t TEMPERATURE 0.1"
+    echo "Usage:"
+    echo "  wola.config [KEY] [VALUE]   (Casual)"
+    echo "  wola.t [KEY] [VALUE]        (Technical)"
+    echo "Example: wola.t TEMPERATURE 0.7"
     echo "         wola.t CHAT_PORT 8000"
+    echo "=================================================="
     exit 0
 fi
 

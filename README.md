@@ -7,8 +7,9 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 ---
 
 > 📖 **Guides & Documentation**:
+> - [**System Architecture & Reference Manual (`DOCUMENTATION.md`)**](DOCUMENTATION.md) — Comprehensive architecture, RAG vector pipeline, offline hotspot/LAN connectivity, daemon lifecycles, and 1-to-1 command specifications.
 > - [**Installation & Complete User Guide (`GETTING_STARTED.md`)**](GETTING_STARTED.md) — Step-by-step installation on Termux & Linux, model downloads, RAG setup, remote client app pairing (Chatbox, Obsidian, NextChat), and troubleshooting.
-> - [**Complete Command Reference (`COMMANDS.md`)**](COMMANDS.md) — Exhaustive CLI reference, TUI shortcuts, configuration variables, and discrete system operations.
+> - [**Complete Command Reference (`COMMANDS.md`)**](COMMANDS.md) — Exhaustive CLI reference, Technical/Casual command pairs, TUI shortcuts, configuration variables, and discrete system operations.
 
 ---
 
@@ -134,31 +135,32 @@ This boots:
 
 ---
 
-## Command Reference
+## Command Reference (Strict 1-to-1 Technical & Casual Pairs)
 
-| Command | Action |
-|---|---|
-| `wola` | **Unified Go & Bubble Tea TUI** (`dashboard`, `chat`, `models`, `knowledge`, `logs`) |
-| `wola.r` | **Start** all services (acquires wake-lock) |
-| `wola.k` | **Stop** all services cleanly (releases wake-lock) |
-| `wola.rs` | **Restart** all services |
-| `wola-tui` | Direct binary invocation for **Go & Bubble Tea TUI** |
-| `wolarc status` | View active process PIDs and listening ports |
-| `wola.d` | Open the live **telemetry dashboard** (auto-delegates to `wola-tui` when present) |
-| `wola.url` | **Remote tunnel URL**, latency test, ASCII QR code & clipboard |
-| `wola.local` / `wola.hotspot` | **Offline gateway & Web Chat UI**, LAN/Hotspot/USB links, QR pairing |
-| `wola.chat` | **Interactive in-terminal chat** with live token stream & RAG notes |
-| `wola.bench` | **Hardware benchmark** (tokens/sec) & optimal thread auto-tuner |
-| `wola.log` | Unified live daemon **log follower** (`chat`, `embed`, `tunnel`) |
-| `wola.th` / `wola think` | Open real-time **thinking stream viewer** or **toggle thinking** (`on` / `off` / `status`) |
-| `wola.gt` / `wola.gh` | Open the **model store** & **local GGUF importer** (Hugging Face / custom storage) |
-| `wola.m` | List models in `~/models`, switch models, or import local GGUF (`wola.m import <path>`) |
-| `wola.t` | View and edit configuration parameters (`wola.t KEY VALUE`) |
-| `wola.i` | Manage vector index (`wola.i status`, `wola.i add <f>`, `wola.i search <q>`) |
-| `wola.u` | **Check for updates** & upgrade to latest release (`wola.u`) |
-| `wola-h` | Interactive **command center** and quick launcher |
-| `wola tui` | **Toggle default UI** between Go Bubble Tea TUI and classic CLI suite (`on` / `off` / `status`) |
-| `wola.purge` | Deep system cleanup & interactive self-destruct uninstaller |
+Wolarc enforces a strict 1-to-1 command pairing convention: every feature has **one Casual Name** (friendly, readable) and **one Technical Name** (terse, developer-friendly). Redundant aliases have been eliminated.
+
+| Casual Name (Friendly) | Technical Name (Terse) | Dispatcher Commands | Action Description |
+|---|---|---|---|
+| `wola` | `wola-tui` | `wola` | **Unified Go & Bubble Tea TUI** (`dashboard`, `chat`, `models`, `knowledge`, `logs`) |
+| `wola.start` | `wola.r` | `wola start` / `wola r` | **Start** all services (acquires CPU wake-lock) |
+| `wola.stop` | `wola.k` | `wola stop` / `wola k` | **Stop** all services cleanly (releases CPU wake-lock) |
+| `wola.restart` | `wola.rs` | `wola restart` / `wola rs` | **Restart** all services gracefully |
+| `wola.check` | `wola.status` | `wola check` / `wola status` | View active process PIDs, ports, and switch status |
+| `wola.dashboard` | `wola.d` | `wola dashboard` / `wola d` | Open live **telemetry dashboard** (or `--once` for instant snapshot) |
+| `wola.chat` | `wola.c` | `wola chat` / `wola c` | **Interactive CLI chat** or single query (`wola.chat "query"`) |
+| `wola.models` | `wola.m` | `wola models` / `wola m` | List models in `~/models` or switch active Chat/Embed roles |
+| `wola.store` | `wola.gt` | `wola store` / `wola gt` | Open **model store** & local GGUF importer |
+| `wola.knowledge` | `wola.i` | `wola knowledge` / `wola i` | Manage vector index (`status`, `add <f>`, `search <q>`) |
+| `wola.bench` | `wola.b` | `wola bench` / `wola b` | **Hardware benchmark** (tokens/sec) & auto-tuner |
+| `wola.log` | `wola.l` | `wola log` / `wola l` | Unified live daemon **log follower** (`chat`, `embed`, `tunnel`) |
+| `wola.think` | `wola.th` | `wola think` / `wola th` | Real-time **thinking stream viewer** or toggle (`on`/`off`/`status`) |
+| `wola.link` | `wola.url` | `wola link` / `wola url` | **Remote tunnel URL**, latency test, ASCII QR code & clipboard |
+| `wola.hotspot` | `wola.local` | `wola hotspot` / `wola local`| **Offline gateway & Web Chat UI**, LAN/Hotspot links, QR pairing |
+| `wola.config` | `wola.t` | `wola config` / `wola t` | View and edit configuration parameters (`wola.t KEY VALUE`) |
+| `wola.update` | `wola.u` | `wola update` / `wola u` | **Check for updates** & upgrade to latest release |
+| `wola.uninstall` | `wola.purge` | `wola uninstall` / `wola purge`| Multi-level system cleanup & self-destruct uninstaller |
+| `wola.help` | `wola.h` | `wola help` / `wola h` | Interactive **command center** and quick launcher wizard |
+| `wola.ui` | `wola.tui` | `wola ui` / `wola tui` | **Toggle default UI mode** between Go TUI and classic CLI |
 
 ---
 

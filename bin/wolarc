@@ -81,6 +81,17 @@ wait_for_service() {
 }
 
 start_node() {
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+        echo -e "${C_BOLD}Wolarc Start Service${C_RESET}"
+        echo "Boots all local AI node services (chat, embed, agent API, indexer, tunnel)."
+        echo ""
+        echo "Usage:"
+        echo "  wola.start         (Casual)"
+        echo "  wola.r             (Technical)"
+        echo "  wola start / wola r"
+        return 0
+    fi
+
     if is_running || [ -f "$LOCK" ]; then
         echo -e "${C_RED}[-] Error: Wola AI Node is ALREADY RUNNING.${C_RESET}"
         echo "    Switch is ON. Run 'wola.k' to turn it off first."
@@ -304,6 +315,17 @@ start_node() {
 }
 
 stop_node() {
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+        echo -e "${C_BOLD}Wolarc Stop Service${C_RESET}"
+        echo "Cleanly terminates all running AI node processes and releases system resources."
+        echo ""
+        echo "Usage:"
+        echo "  wola.stop          (Casual)"
+        echo "  wola.k             (Technical)"
+        echo "  wola stop / wola k"
+        return 0
+    fi
+
     if ! is_running && [ ! -f "$LOCK" ]; then
         echo -e "${C_YELLOW}[-] Wola AI Node is ALREADY OFF.${C_RESET}"
         return 0
@@ -321,6 +343,17 @@ stop_node() {
 }
 
 restart_node() {
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+        echo -e "${C_BOLD}Wolarc Restart Service${C_RESET}"
+        echo "Performs a graceful stop, resource cleanup, and restart of all node daemons."
+        echo ""
+        echo "Usage:"
+        echo "  wola.restart       (Casual)"
+        echo "  wola.rs            (Technical)"
+        echo "  wola restart / wola rs"
+        return 0
+    fi
+
     echo -e "${C_YELLOW}[*] Restarting Wola AI Node stack...${C_RESET}"
     stop_node
     sleep 2
@@ -328,6 +361,17 @@ restart_node() {
 }
 
 status_node() {
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+        echo -e "${C_BOLD}Wolarc Status Check${C_RESET}"
+        echo "Inspects active process PIDs, listening ports, switch status, and endpoints."
+        echo ""
+        echo "Usage:"
+        echo "  wola.check         (Casual)"
+        echo "  wola.status        (Technical)"
+        echo "  wola check / wola status"
+        return 0
+    fi
+
     echo -e "${C_CYAN}=================================================================${C_RESET}"
     echo -e "                    WOLA SERVICE STATUS"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
@@ -349,32 +393,76 @@ status_node() {
     echo -e "${C_CYAN}=================================================================${C_RESET}"
 }
 
+TARGET_PURGE="${PREFIX:-/data/data/com.termux/files/usr}/bin/wola.purge"
+[ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="$(dirname "$0")/wola.purge"
+[ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="wola.purge"
+
+handle_tui_toggle() {
+    case "$1" in
+        "on"|"enable"|"1"|"true")
+            python3 -c "
+import re, os
+path = os.path.expanduser('~/.wolarc')
+lines = []
+if os.path.exists(path):
+    with open(path) as f: lines = f.readlines()
+pat = re.compile(r'^\s*ENABLE_TUI=.*$')
+if any(pat.match(l) for l in lines):
+    lines = [f'ENABLE_TUI=\"true\"\n' if pat.match(l) else l for l in lines]
+else:
+    lines.append('ENABLE_TUI=\"true\"\n')
+with open(path, 'w') as f: f.writelines(lines)
+"
+            echo -e "${C_GREEN}[+] Go Bubble Tea TUI ENABLED.${C_RESET}"
+            echo "    'wola' will now launch the interactive TUI."
+            ;;
+        "off"|"disable"|"0"|"false")
+            python3 -c "
+import re, os
+path = os.path.expanduser('~/.wolarc')
+lines = []
+if os.path.exists(path):
+    with open(path) as f: lines = f.readlines()
+pat = re.compile(r'^\s*ENABLE_TUI=.*$')
+if any(pat.match(l) for l in lines):
+    lines = [f'ENABLE_TUI=\"false\"\n' if pat.match(l) else l for l in lines]
+else:
+    lines.append('ENABLE_TUI=\"false\"\n')
+with open(path, 'w') as f: f.writelines(lines)
+"
+            echo -e "${C_YELLOW}[-] Go Bubble Tea TUI DISABLED.${C_RESET}"
+            echo "    'wola' will now use the classic CLI command suite."
+            ;;
+        "status"|*)
+            echo -e "${C_BOLD}Go Bubble Tea TUI Status:${C_RESET} ${ENABLE_TUI:-true}"
+            echo "Usage: wola tui [on|off|status] (or wola ui [on|off|status])"
+            ;;
+    esac
+}
+
 INVOCATION=$(basename "$0")
 case "$INVOCATION" in
-    "wola.r")  start_node ;;
-    "wola.k")  stop_node ;;
-    "wola.rs") restart_node ;;
-    "wola.d")  exec "$PREFIX/bin/wola.d" ;;
-    "wola.url"|"wola.link") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
-    "wola.local"|"wola.hotspot") shift; exec "$PREFIX/bin/wola.url" local "$@" ;;
-    "wola.chat"|"wola.c")   shift; exec "$PREFIX/bin/wola.chat" "$@" ;;
-    "wola.bench"|"wola.b")  shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
-    "wola.log"|"wola.logs") shift; exec "$PREFIX/bin/wola.log" "$@" ;;
-    "wola.th") exec "$PREFIX/bin/wola.th" ;;
-    "wola.t")  shift; exec "$PREFIX/bin/wola.t" "$@" ;;
-    "wola.m")  shift; exec "$PREFIX/bin/wola.m" "$@" ;;
-    "wola.i")  shift; exec "$PREFIX/bin/wola.i" "$@" ;;
-    "wola.gt"|"wola.gh") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
-    "wola.u")  shift; exec "$PREFIX/bin/wola.u" "$@" ;;
-    "wola.purge"|"wola.destroy"|"wola.selfdestruct"|"wola.nuke")
-        shift 2>/dev/null || true
-        TARGET_PURGE="${PREFIX:-/data/data/com.termux/files/usr}/bin/wola.purge"
-        [ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="$(dirname "$0")/wola.purge"
-        [ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="wola.purge"
-        exec "$TARGET_PURGE" "$@"
-        ;;
-    "wola-h"|"wola.h") exec "$PREFIX/bin/wola-h" ;;
-    "wola")
+    "wola.r"|"wola.start")          start_node "$@" ;;
+    "wola.k"|"wola.stop")           stop_node "$@" ;;
+    "wola.rs"|"wola.restart")       restart_node "$@" ;;
+    "wola.status"|"wola.check")     status_node "$@" ;;
+    "wola.d"|"wola.dashboard")      exec "$PREFIX/bin/wola.d" "$@" ;;
+    "wola.c"|"wola.chat")           exec "$PREFIX/bin/wola.chat" "$@" ;;
+    "wola.m"|"wola.models")         exec "$PREFIX/bin/wola.m" "$@" ;;
+    "wola.gt"|"wola.store")         exec "$PREFIX/bin/wola.gt" "$@" ;;
+    "wola.i"|"wola.knowledge")      exec "$PREFIX/bin/wola.i" "$@" ;;
+    "wola.b"|"wola.bench")          exec "$PREFIX/bin/wola.bench" "$@" ;;
+    "wola.l"|"wola.log")            exec "$PREFIX/bin/wola.log" "$@" ;;
+    "wola.th"|"wola.think")         exec "$PREFIX/bin/wola.th" "$@" ;;
+    "wola.url"|"wola.link")         exec "$PREFIX/bin/wola.url" "$@" ;;
+    "wola.local"|"wola.hotspot")    exec "$PREFIX/bin/wola.url" local "$@" ;;
+    "wola.t"|"wola.config")         exec "$PREFIX/bin/wola.t" "$@" ;;
+    "wola.u"|"wola.update")         exec "$PREFIX/bin/wola.u" "$@" ;;
+    "wola.purge"|"wola.uninstall")  exec "$TARGET_PURGE" "$@" ;;
+    "wola.h"|"wola.help"|"wola-h")  exec "$PREFIX/bin/wola-h" "$@" ;;
+    "wola.tui"|"wola.ui")           exec "$PREFIX/bin/wola-tui" "$@" ;;
+    *)
+        # Invoked as 'wola' or general dispatcher
         if [ $# -eq 0 ]; then
             if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                 exec wola-tui
@@ -382,272 +470,86 @@ case "$INVOCATION" in
                 exec "$PREFIX/bin/wola-h"
             fi
         fi
+
         case "$1" in
-            "r"|"start")       start_node ;;
-            "k"|"stop")        stop_node ;;
-            "rs"|"restart")    restart_node ;;
-            "d"|"dash"|"dashboard")
+            "r"|"start")               shift; start_node "$@" ;;
+            "k"|"stop")                shift; stop_node "$@" ;;
+            "rs"|"restart")            shift; restart_node "$@" ;;
+            "status"|"check")          shift; status_node "$@" ;;
+            "d"|"dashboard")
+                shift
+                if [ $# -gt 0 ]; then
+                    exec "$PREFIX/bin/wola.d" "$@"
+                fi
                 if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                     exec wola-tui dashboard
                 fi
-                exec "$PREFIX/bin/wola.d"
+                exec "$PREFIX/bin/wola.d" "$@"
                 ;;
             "c"|"chat")
-                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
+                shift
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1 && [ $# -eq 0 ]; then
                     exec wola-tui chat
                 fi
-                shift; exec "$PREFIX/bin/wola.chat" "$@"
+                exec "$PREFIX/bin/wola.chat" "$@"
                 ;;
             "m"|"models")
-                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
+                shift
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1 && [ $# -eq 0 ]; then
                     exec wola-tui models
                 fi
-                shift; exec "$PREFIX/bin/wola.m" "$@"
+                exec "$PREFIX/bin/wola.m" "$@"
                 ;;
-            "i"|"index"|"know"|"knowledge")
-                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
+            "gt"|"store")
+                shift; exec "$PREFIX/bin/wola.gt" "$@"
+                ;;
+            "i"|"knowledge")
+                shift
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1 && [ $# -eq 0 ]; then
                     exec wola-tui knowledge
                 fi
-                shift; exec "$PREFIX/bin/wola.i" "$@"
+                exec "$PREFIX/bin/wola.i" "$@"
                 ;;
-            "l"|"log"|"logs")
-                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
+            "b"|"bench")
+                shift; exec "$PREFIX/bin/wola.bench" "$@"
+                ;;
+            "l"|"log")
+                shift
+                if is_tui_enabled && command -v wola-tui >/dev/null 2>&1 && [ $# -eq 0 ]; then
                     exec wola-tui logs
                 fi
-                shift; exec "$PREFIX/bin/wola.log" "$@"
+                exec "$PREFIX/bin/wola.log" "$@"
                 ;;
-            "tui")
-                shift
-                case "$1" in
-                    "on"|"enable"|"1"|"true")
-                        python3 -c "
-import re, os
-path = os.path.expanduser('~/.wolarc')
-lines = []
-if os.path.exists(path):
-    with open(path) as f: lines = f.readlines()
-pat = re.compile(r'^\s*ENABLE_TUI=.*$')
-if any(pat.match(l) for l in lines):
-    lines = [f'ENABLE_TUI=\"true\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append('ENABLE_TUI=\"true\"\n')
-with open(path, 'w') as f: f.writelines(lines)
-"
-                        echo -e "${C_GREEN}[+] Go Bubble Tea TUI ENABLED.${C_RESET}"
-                        echo "    'wola' will now launch the interactive TUI."
-                        ;;
-                    "off"|"disable"|"0"|"false")
-                        python3 -c "
-import re, os
-path = os.path.expanduser('~/.wolarc')
-lines = []
-if os.path.exists(path):
-    with open(path) as f: lines = f.readlines()
-pat = re.compile(r'^\s*ENABLE_TUI=.*$')
-if any(pat.match(l) for l in lines):
-    lines = [f'ENABLE_TUI=\"false\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append('ENABLE_TUI=\"false\"\n')
-with open(path, 'w') as f: f.writelines(lines)
-"
-                        echo -e "${C_YELLOW}[-] Go Bubble Tea TUI DISABLED.${C_RESET}"
-                        echo "    'wola' will now use the classic CLI command suite."
-                        ;;
-                    "status"|*)
-                        echo -e "${C_BOLD}Go Bubble Tea TUI Status:${C_RESET} ${ENABLE_TUI:-true}"
-                        echo "Usage: wola tui [on|off|status]"
-                        ;;
-                esac
-                exit 0
-                ;;
-            "url"|"link"|"tunnel") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
-            "local"|"offline"|"hotspot"|"lan") shift; exec "$PREFIX/bin/wola.url" local "$@" ;;
-            "b"|"bench")       shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
             "th"|"think")
-                shift
-                if [ -n "$1" ]; then
-                    case "$1" in
-                        "on"|"enable"|"1"|"true")
-                            python3 -c "
-import re, os
-path = os.path.expanduser('~/.wolarc')
-lines = []
-if os.path.exists(path):
-    with open(path) as f: lines = f.readlines()
-pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
-if any(pat.match(l) for l in lines):
-    lines = [f'ENABLE_THINKING=\"true\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append('ENABLE_THINKING=\"true\"\n')
-with open(path, 'w') as f: f.writelines(lines)
-"
-                            echo -e "${C_GREEN}[+] Model reasoning / thinking mechanism ENABLED (<think> on).${C_RESET}"
-                            exit 0
-                            ;;
-                        "off"|"disable"|"0"|"false")
-                            python3 -c "
-import re, os
-path = os.path.expanduser('~/.wolarc')
-lines = []
-if os.path.exists(path):
-    with open(path) as f: lines = f.readlines()
-pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
-if any(pat.match(l) for l in lines):
-    lines = [f'ENABLE_THINKING=\"false\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append('ENABLE_THINKING=\"false\"\n')
-with open(path, 'w') as f: f.writelines(lines)
-"
-                            echo -e "${C_YELLOW}[-] Model reasoning / thinking mechanism DISABLED (direct fast answer mode).${C_RESET}"
-                            exit 0
-                            ;;
-                        "status")
-                            echo -e "${C_BOLD}Model Thinking Status:${C_RESET} ${ENABLE_THINKING:-true}"
-                            echo "Usage: wola think [on|off|status]"
-                            exit 0
-                            ;;
-                    esac
-                fi
-                exec "$PREFIX/bin/wola.th" "$@"
+                shift; exec "$PREFIX/bin/wola.th" "$@"
                 ;;
-            "t"|"tuner")       shift; exec "$PREFIX/bin/wola.t" "$@" ;;
-            "gt"|"gh"|"store") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
-            "u"|"update"|"upgrade") shift; exec "$PREFIX/bin/wola.u" "$@" ;;
-            "status")          status_node ;;
+            "url"|"link")
+                shift; exec "$PREFIX/bin/wola.url" "$@"
+                ;;
+            "local"|"hotspot")
+                shift; exec "$PREFIX/bin/wola.url" local "$@"
+                ;;
+            "t"|"config")
+                shift; exec "$PREFIX/bin/wola.t" "$@"
+                ;;
+            "u"|"update")
+                shift; exec "$PREFIX/bin/wola.u" "$@"
+                ;;
+            "purge"|"uninstall")
+                shift; exec "$TARGET_PURGE" "$@"
+                ;;
+            "h"|"help")
+                shift; exec "$PREFIX/bin/wola-h" "$@"
+                ;;
+            "tui"|"ui")
+                shift; handle_tui_toggle "$@" ;;
             *)
                 if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
                     exec wola-tui "$@"
                 fi
-                echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
-                echo "Usage: wola [dashboard|chat|models|knowledge|logs|start|stop|restart|status|url|local|think|tui]"
-                ;;
-        esac
-        ;;
-    *)
-        case "$1" in
-            "r"|"start")       start_node ;;
-            "k"|"stop")        stop_node ;;
-            "rs"|"restart")    restart_node ;;
-            "d"|"dash")        exec "$PREFIX/bin/wola.d" ;;
-            "url"|"link"|"tunnel") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
-            "local"|"offline"|"hotspot"|"lan") shift; exec "$PREFIX/bin/wola.url" local "$@" ;;
-            "c"|"chat")        shift; exec "$PREFIX/bin/wola.chat" "$@" ;;
-            "b"|"bench")       shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
-            "log"|"logs")      shift; exec "$PREFIX/bin/wola.log" "$@" ;;
-            "th"|"think")
-                shift
-                if [ -n "$1" ]; then
-                    case "$1" in
-                        "on"|"enable"|"1"|"true")
-                            python3 -c "
-import re, os
-path = os.path.expanduser('~/.wolarc')
-lines = []
-if os.path.exists(path):
-    with open(path) as f: lines = f.readlines()
-pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
-if any(pat.match(l) for l in lines):
-    lines = [f'ENABLE_THINKING=\"true\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append('ENABLE_THINKING=\"true\"\n')
-with open(path, 'w') as f: f.writelines(lines)
-"
-                            echo -e "${C_GREEN}[+] Model reasoning / thinking mechanism ENABLED (<think> on).${C_RESET}"
-                            exit 0
-                            ;;
-                        "off"|"disable"|"0"|"false")
-                            python3 -c "
-import re, os
-path = os.path.expanduser('~/.wolarc')
-lines = []
-if os.path.exists(path):
-    with open(path) as f: lines = f.readlines()
-pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
-if any(pat.match(l) for l in lines):
-    lines = [f'ENABLE_THINKING=\"false\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append('ENABLE_THINKING=\"false\"\n')
-with open(path, 'w') as f: f.writelines(lines)
-"
-                            echo -e "${C_YELLOW}[-] Model reasoning / thinking mechanism DISABLED (direct fast answer mode).${C_RESET}"
-                            exit 0
-                            ;;
-                        "status")
-                            echo -e "${C_BOLD}Model Thinking Status:${C_RESET} ${ENABLE_THINKING:-true}"
-                            echo "Usage: wola think [on|off|status]"
-                            exit 0
-                            ;;
-                    esac
-                fi
-                exec "$PREFIX/bin/wola.th" "$@"
-                ;;
-            "t"|"tuner")       shift; exec "$PREFIX/bin/wola.t" "$@" ;;
-            "m"|"models")      shift; exec "$PREFIX/bin/wola.m" "$@" ;;
-            "i"|"index")       shift; exec "$PREFIX/bin/wola.i" "$@" ;;
-            "gt"|"gh"|"store") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
-            "u"|"update"|"upgrade") shift; exec "$PREFIX/bin/wola.u" "$@" ;;
-            "purge"|"destroy"|"selfdestruct"|"nuke")
-                shift
-                TARGET_PURGE="${PREFIX:-/data/data/com.termux/files/usr}/bin/wola.purge"
-                [ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="$(dirname "$0")/wola.purge"
-                [ ! -x "$TARGET_PURGE" ] && TARGET_PURGE="wola.purge"
-                exec "$TARGET_PURGE" "$@"
-                ;;
-            "tui")
-                shift
-                case "$1" in
-                    "on"|"enable"|"1"|"true")
-                        python3 -c "
-import re, os
-path = os.path.expanduser('~/.wolarc')
-lines = []
-if os.path.exists(path):
-    with open(path) as f: lines = f.readlines()
-pat = re.compile(r'^\s*ENABLE_TUI=.*$')
-if any(pat.match(l) for l in lines):
-    lines = [f'ENABLE_TUI=\"true\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append('ENABLE_TUI=\"true\"\n')
-with open(path, 'w') as f: f.writelines(lines)
-"
-                        echo -e "${C_GREEN}[+] Go Bubble Tea TUI ENABLED.${C_RESET}"
-                        echo "    'wola' will now launch the interactive TUI."
-                        ;;
-                    "off"|"disable"|"0"|"false")
-                        python3 -c "
-import re, os
-path = os.path.expanduser('~/.wolarc')
-lines = []
-if os.path.exists(path):
-    with open(path) as f: lines = f.readlines()
-pat = re.compile(r'^\s*ENABLE_TUI=.*$')
-if any(pat.match(l) for l in lines):
-    lines = [f'ENABLE_TUI=\"false\"\n' if pat.match(l) else l for l in lines]
-else:
-    lines.append('ENABLE_TUI=\"false\"\n')
-with open(path, 'w') as f: f.writelines(lines)
-"
-                        echo -e "${C_YELLOW}[-] Go Bubble Tea TUI DISABLED.${C_RESET}"
-                        echo "    'wola' will now use the classic CLI command suite."
-                        ;;
-                    "status"|*)
-                        echo -e "${C_BOLD}Go Bubble Tea TUI Status:${C_RESET} ${ENABLE_TUI:-true}"
-                        echo "Usage: wola tui [on|off|status]"
-                        ;;
-                esac
-                exit 0
-                ;;
-            "status")          status_node ;;
-            *)
-                if [ $# -eq 0 ]; then
-                    if is_tui_enabled && command -v wola-tui >/dev/null 2>&1; then
-                        exec wola-tui
-                    else
-                        exec "$PREFIX/bin/wola-h"
-                    fi
-                fi
-                echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
-                echo "Usage: wola.r | wola.k | wola.rs | wola.d | wola.url | wola.local | wola.chat | wola.bench | wola.log | wola.th | wola.gt (wola.gh) | wola.t | wola.m | wola.i | wola.u | wola.purge | wola-h"
+                echo -e "${C_BOLD}Wola Autonomous AI Node Suite${C_RESET}"
+                echo "Technical Commands : wola.r | wola.k | wola.rs | wola.status | wola.d | wola.c | wola.m | wola.gt | wola.i | wola.b | wola.l | wola.th | wola.url | wola.local | wola.t | wola.u | wola.purge | wola.h"
+                echo "Casual Commands    : wola.start | wola.stop | wola.restart | wola.check | wola.dashboard | wola.chat | wola.models | wola.store | wola.knowledge | wola.bench | wola.log | wola.think | wola.link | wola.hotspot | wola.config | wola.update | wola.uninstall | wola.help"
                 ;;
         esac
         ;;

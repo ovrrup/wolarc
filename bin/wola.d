@@ -1,13 +1,34 @@
 #!/data/data/com.termux/files/usr/bin/python3
 import os, sys, time, json, subprocess, requests, select, termios, tty, atexit, re, shutil
 
-# If high-performance Go Bubble Tea TUI binary exists, hand off execution seamlessly
-_GO_TUI = shutil.which("wola-tui") or (os.path.expanduser("~/go/bin/wola-tui") if os.path.exists(os.path.expanduser("~/go/bin/wola-tui")) else None)
-if _GO_TUI and os.access(_GO_TUI, os.X_OK) and not os.environ.get("WOLA_LEGACY_TUI"):
-    try:
-        os.execv(_GO_TUI, [_GO_TUI] + sys.argv[1:])
-    except Exception:
-        pass
+def is_tui_enabled():
+    cfg = os.path.expanduser("~/.wolarc")
+    if os.path.exists(cfg):
+        try:
+            with open(cfg) as f:
+                for line in f:
+                    if line.startswith("ENABLE_TUI="):
+                        val = line.split("=", 1)[1].strip("\"' \n").lower()
+                        return val not in ["false", "0", "off", "no"]
+        except Exception:
+            pass
+    return True
+
+if any(a in sys.argv for a in ["-h", "--help", "help"]):
+    print("\033[1mWolarc Real-Time Telemetry Dashboard (wola.d / wola.dashboard)\033[0m")
+    print("Usage:")
+    print("  wola.d (or wola.dashboard)      Open interactive live telemetry monitor")
+    print("  wola.d --once                   Display a single telemetry snapshot and exit")
+    sys.exit(0)
+
+# If Go Bubble Tea TUI is enabled and binary exists, hand off execution seamlessly
+if is_tui_enabled() and "--once" not in sys.argv and not os.environ.get("WOLA_LEGACY_TUI"):
+    _GO_TUI = shutil.which("wola-tui") or (os.path.expanduser("~/go/bin/wola-tui") if os.path.exists(os.path.expanduser("~/go/bin/wola-tui")) else None)
+    if _GO_TUI and os.access(_GO_TUI, os.X_OK):
+        try:
+            os.execv(_GO_TUI, [_GO_TUI, "dashboard"] + [a for a in sys.argv[1:] if a != "dashboard"])
+        except Exception:
+            pass
 
 # ANSI Color Codes & Styles
 C_RESET   = "\033[0m"
@@ -302,6 +323,10 @@ def render():
     sys.stdout.flush()
 
 def main():
+    if "--once" in sys.argv:
+        render()
+        return
+
     global ORIG_TERMIOS
     is_tty = sys.stdin.isatty()
     if is_tty:
