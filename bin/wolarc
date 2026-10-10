@@ -86,21 +86,36 @@ start_node() {
         exit 1
     fi
 
+    # Compute optimal thread default if unspecified
+    local detected_cores=$(nproc 2>/dev/null || echo 4)
+    local optimal_threads=4
+    [ "$detected_cores" -lt 4 ] && optimal_threads="$detected_cores"
+    CHAT_THREADS="${CHAT_THREADS:-$optimal_threads}"
+    EMBED_THREADS="${EMBED_THREADS:-2}"
+
+    # Optimization flags: Flash Attention & memory pinning
+    local FLASH_FLAG=""
+    [ "${FLASH_ATTENTION:-auto}" != "off" ] && FLASH_FLAG="-fa ${FLASH_ATTENTION:-auto}"
+    local MLOCK_FLAG=""
+    [ "${MLOCK:-false}" = "true" ] && MLOCK_FLAG="--mlock"
+
     touch "$LOCK"
     command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
-    echo -e "${C_GREEN}[*] Initializing Wola AI Node Engine...${C_RESET}"
+    echo -e "${C_GREEN}[*] Initializing Wola AI Node Engine (Flash-Attn: ${FLASH_ATTENTION:-auto}, Threads: ${CHAT_THREADS})...${C_RESET}"
 
     "$BIN" -m "$MODELS_DIR/$EMBED_MODEL" \
            --embeddings \
            --host 127.0.0.1 \
            -c "${EMBED_CTX:-2048}" -b 2048 -ub 2048 \
-           -t "${EMBED_THREADS:-2}" \
+           -t "$EMBED_THREADS" \
+           $FLASH_FLAG $MLOCK_FLAG \
            --port "${EMBED_PORT:-8081}" > "$HOME/embed.log" 2>&1 &
 
     "$BIN" -m "$MODELS_DIR/$CHAT_MODEL" \
            --host 127.0.0.1 \
            -c "${CHAT_CTX:-4096}" -b 512 -np 1 \
-           -t "${CHAT_THREADS:-4}" \
+           -t "$CHAT_THREADS" \
+           $FLASH_FLAG $MLOCK_FLAG \
            --port "${CHAT_PORT:-8080}" > "$HOME/chat.log" 2>&1 &
 
     if ! wait_for_service "http://127.0.0.1:${EMBED_PORT:-8081}/props" "Embedding Engine (8081)"; then
@@ -128,40 +143,90 @@ start_node() {
         exit 1
     fi
 
-    echo -n -e "[*] Negotiating secure tunnel "
+    echo -n -e "[*] Negotiating resilient tunnel (localhost.run -> serveo -> pinggy) "
     rm -f "$HOME/tunnel.log"
     pkill -9 -f "ssh.*localhost.run" 2>/dev/null
+    pkill -9 -f "ssh.*serveo.net" 2>/dev/null
+    pkill -9 -f "ssh.*pinggy" 2>/dev/null
 
-    nohup ssh -o StrictHostKeyChecking=no \
-              -o ServerAliveInterval=20 \
-              -o ServerAliveCountMax=3 \
-              -o ExitOnForwardFailure=yes \
-              -R 80:localhost:${port} \
-              nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
-
+    local providers=("localhost.run" "serveo" "pinggy")
     TUNNEL_URL=""
-    for i in {1..25}; do
-        TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.lhr\.life" "$HOME/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1)
-        [ -n "$TUNNEL_URL" ] && break
-        echo -n "."
-        sleep 1
+    ACTIVE_PROVIDER=""
+
+    for p in "${providers[@]}"; do
+        rm -f "$HOME/tunnel.log"
+        case "$p" in
+            "localhost.run")
+                nohup ssh -o StrictHostKeyChecking=no \
+                          -o ServerAliveInterval=15 \
+                          -o ServerAliveCountMax=3 \
+                          -o ExitOnForwardFailure=yes \
+                          -R 80:localhost:${port} \
+                          nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
+                ;;
+            "serveo")
+                nohup ssh -o StrictHostKeyChecking=no \
+                          -o ServerAliveInterval=15 \
+                          -o ServerAliveCountMax=3 \
+                          -o ExitOnForwardFailure=yes \
+                          -R 80:localhost:${port} \
+                          serveo.net > "$HOME/tunnel.log" 2>&1 &
+                ;;
+            "pinggy")
+                nohup ssh -o StrictHostKeyChecking=no \
+                          -o ServerAliveInterval=15 \
+                          -o ServerAliveCountMax=3 \
+                          -o ExitOnForwardFailure=yes \
+                          -R 0:localhost:${port} \
+                          a.pinggy.io > "$HOME/tunnel.log" 2>&1 &
+                ;;
+        esac
+
+        for i in {1..12}; do
+            case "$p" in
+                "localhost.run")
+                    TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.lhr\.life" "$HOME/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1)
+                    ;;
+                "serveo")
+                    TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.serveo\.net" "$HOME/tunnel.log" 2>/dev/null | tail -n 1)
+                    ;;
+                "pinggy")
+                    TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.(?:free\.)?pinggy\.link" "$HOME/tunnel.log" 2>/dev/null | tail -n 1)
+                    ;;
+            esac
+            if [ -n "$TUNNEL_URL" ]; then
+                ACTIVE_PROVIDER="$p"
+                break 2
+            fi
+            echo -n "."
+            sleep 1
+        done
+        pkill -9 -f "ssh.*$p" 2>/dev/null
     done
     echo ""
+
+    if [ -n "$TUNNEL_URL" ]; then
+        echo "$TUNNEL_URL" > "$HOME/.wola_url"
+        echo "${TUNNEL_URL}/v1" > "$HOME/.wola_endpoint"
+        echo "$ACTIVE_PROVIDER" > "$HOME/.wola_provider"
+    else
+        rm -f "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider"
+    fi
 
     echo -e "${C_CYAN}=================================================================${C_RESET}"
     echo -e "  ${C_BOLD}WOLA AI NODE ONLINE [SWITCH: ON]${C_RESET}"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
     if [ -n "$TUNNEL_URL" ]; then
-        echo -e "  ${C_BOLD}Public Base URL :${C_RESET} ${C_GREEN}${TUNNEL_URL}${C_RESET}"
+        echo -e "  ${C_BOLD}Public Base URL :${C_RESET} ${C_GREEN}${TUNNEL_URL}${C_RESET} (${C_DIM}provider: ${ACTIVE_PROVIDER}${C_RESET})"
         echo -e "  ${C_BOLD}API Endpoint    :${C_RESET} ${C_GREEN}${TUNNEL_URL}/v1${C_RESET}"
     else
-        echo -e "  ${C_YELLOW}Tunnel pending. Run 'cat ~/tunnel.log' to view URL.${C_RESET}"
+        echo -e "  ${C_YELLOW}Tunnel offline. Local API active at http://127.0.0.1:${port}/v1${C_RESET}"
     fi
     echo -e "  Chat Model      : ${C_YELLOW}${CHAT_MODEL}${C_RESET}"
     echo -e "  Embed Model     : ${C_YELLOW}${EMBED_MODEL}${C_RESET}"
     echo -e "  API Key         : sk-test"
     echo -e "${C_CYAN}-----------------------------------------------------------------${C_RESET}"
-    echo -e "  Commands: ${C_BOLD}wola.d${C_RESET} | ${C_BOLD}wola.th${C_RESET} | ${C_BOLD}wola.gt${C_RESET} | ${C_BOLD}wola.t${C_RESET} | ${C_BOLD}wola.rs${C_RESET} | ${C_BOLD}wola.u${C_RESET} | ${C_BOLD}wola.k${C_RESET}"
+    echo -e "  Commands: ${C_BOLD}wola.d${C_RESET} | ${C_BOLD}wola.url${C_RESET} | ${C_BOLD}wola.chat${C_RESET} | ${C_BOLD}wola.th${C_RESET} | ${C_BOLD}wola.gt${C_RESET} | ${C_BOLD}wola.t${C_RESET} | ${C_BOLD}wola.rs${C_RESET} | ${C_BOLD}wola.k${C_RESET}"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
 }
 
@@ -176,8 +241,8 @@ stop_node() {
     pkill -9 -f "agent.py" 2>/dev/null
     pkill -9 -f "ssh.*localhost.run" 2>/dev/null
     pkill -9 -f "ssh.*serveo.net" 2>/dev/null
-    pkill -9 -f "pinggy" 2>/dev/null
-    rm -f "$LOCK"
+    pkill -9 -f "ssh.*pinggy" 2>/dev/null
+    rm -f "$LOCK" "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider"
     termux-wake-unlock 2>/dev/null
     echo -e "${C_GREEN}[+] [SWITCH: OFF] Services stopped and wake-lock released.${C_RESET}"
 }
@@ -217,6 +282,10 @@ case "$INVOCATION" in
     "wola.k")  stop_node ;;
     "wola.rs") restart_node ;;
     "wola.d")  exec "$PREFIX/bin/wola.d" ;;
+    "wola.url"|"wola.link") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
+    "wola.chat"|"wola.c")   shift; exec "$PREFIX/bin/wola.chat" "$@" ;;
+    "wola.bench"|"wola.b")  shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
+    "wola.log"|"wola.logs") shift; exec "$PREFIX/bin/wola.log" "$@" ;;
     "wola.th") exec "$PREFIX/bin/wola.th" ;;
     "wola.t")  shift; exec "$PREFIX/bin/wola.t" "$@" ;;
     "wola.m")  shift; exec "$PREFIX/bin/wola.m" "$@" ;;
@@ -230,6 +299,10 @@ case "$INVOCATION" in
             "k"|"stop")        stop_node ;;
             "rs"|"restart")    restart_node ;;
             "d"|"dash")        exec "$PREFIX/bin/wola.d" ;;
+            "url"|"link"|"tunnel") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
+            "c"|"chat")        shift; exec "$PREFIX/bin/wola.chat" "$@" ;;
+            "b"|"bench")       shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
+            "log"|"logs")      shift; exec "$PREFIX/bin/wola.log" "$@" ;;
             "th"|"think")      exec "$PREFIX/bin/wola.th" ;;
             "t"|"tuner")       shift; exec "$PREFIX/bin/wola.t" "$@" ;;
             "m"|"models")      shift; exec "$PREFIX/bin/wola.m" "$@" ;;
@@ -239,7 +312,7 @@ case "$INVOCATION" in
             "status")          status_node ;;
             *)
                 echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
-                echo "Usage: wola.r | wola.k | wola.rs | wola.d | wola.th | wola.gt | wola.t | wola.m | wola.i | wola.u | wola-h"
+                echo "Usage: wola.r | wola.k | wola.rs | wola.d | wola.url | wola.chat | wola.bench | wola.log | wola.th | wola.gt | wola.t | wola.m | wola.i | wola.u | wola-h"
                 ;;
         esac
         ;;

@@ -1,0 +1,170 @@
+#!/data/data/com.termux/files/usr/bin/python3
+import os, sys, time, requests, json, multiprocessing
+
+C_RESET   = "\033[0m"
+C_BOLD    = "\033[1m"
+C_DIM     = "\033[2m"
+C_GREEN   = "\033[1;32m"
+C_RED     = "\033[1;31m"
+C_YELLOW  = "\033[1;33m"
+C_CYAN    = "\033[1;36m"
+C_MAGENTA = "\033[1;35m"
+
+CONFIG_FILE = os.path.expanduser("~/.wolarc")
+CHAT_PORT = 8080
+AGENT_PORT = 5000
+
+if os.path.exists(CONFIG_FILE):
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            for line in f:
+                if line.startswith("CHAT_PORT="):
+                    CHAT_PORT = int(line.split("=", 1)[1].strip("\"' \n"))
+                elif line.startswith("AGENT_PORT="):
+                    AGENT_PORT = int(line.split("=", 1)[1].strip("\"' \n"))
+    except Exception:
+        pass
+
+def get_ram_info():
+    tot, avail = 0, 0
+    try:
+        with open("/proc/meminfo", "r") as f:
+            for l in f:
+                if l.startswith("MemTotal:"):
+                    tot = int(l.split()[1]) // 1024
+                elif l.startswith("MemAvailable:"):
+                    avail = int(l.split()[1]) // 1024
+    except Exception:
+        pass
+    return tot, avail
+
+def benchmark_inference():
+    print(f"\n{C_CYAN}[*] Running live token velocity benchmark...{C_RESET}")
+    url = f"http://127.0.0.1:{CHAT_PORT}/v1/chat/completions"
+    payload = {
+        "messages": [
+            {"role": "user", "content": "Explain the concept of entropy in physics and thermodynamics in three concise paragraphs."}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 120,
+        "stream": True
+    }
+
+    try:
+        t0 = time.time()
+        res = requests.post(url, json=payload, stream=True, timeout=30)
+        if res.status_code != 200:
+            print(f"{C_RED}[-] Server returned HTTP {res.status_code}{C_RESET}")
+            return None
+
+        first_token_time = None
+        tok_count = 0
+        timings_obj = None
+
+        sys.stdout.write("  Generating tokens: ")
+        sys.stdout.flush()
+
+        for line in res.iter_lines():
+            if not line:
+                continue
+            decoded = line.decode("utf-8", errors="replace")
+            if decoded.startswith("data: "):
+                data_str = decoded[6:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    parsed = json.loads(data_str)
+                    choices = parsed.get("choices", [])
+                    if choices:
+                        content = choices[0].get("delta", {}).get("content", "")
+                        if content:
+                            if first_token_time is None:
+                                first_token_time = time.time()
+                            tok_count += 1
+                            if tok_count % 8 == 0:
+                                sys.stdout.write("■")
+                                sys.stdout.flush()
+                    if "timings" in parsed:
+                        timings_obj = parsed["timings"]
+                except Exception:
+                    pass
+
+        t_end = time.time()
+        print(" [Done]")
+
+        ttft = (first_token_time - t0) if first_token_time else (t_end - t0)
+        total_time = t_end - (first_token_time or t0)
+        speed = tok_count / max(0.01, total_time)
+
+        if timings_obj:
+            gen_speed = timings_obj.get("predicted_per_second", speed)
+            eval_speed = timings_obj.get("prompt_per_second", 0.0)
+            return gen_speed, eval_speed, ttft, tok_count
+        return speed, 0.0, ttft, tok_count
+
+    except Exception as e:
+        print(f"{C_RED}[-] Benchmark failed: {e}{C_RESET}")
+        return None
+
+def main():
+    print(f"{C_CYAN}╭────────────────────────────────────────────────────────────────╮{C_RESET}")
+    print(f"{C_CYAN}│{C_RESET}               {C_BOLD}WOLARC HARDWARE & INFERENCE BENCHMARK{C_RESET}            {C_CYAN}│{C_RESET}")
+    print(f"{C_CYAN}╰────────────────────────────────────────────────────────────────╯{C_RESET}")
+
+    cores = multiprocessing.cpu_count()
+    tot_ram, avail_ram = get_ram_info()
+
+    print(f"  • CPU Cores     : {C_BOLD}{cores}{C_RESET}")
+    print(f"  • Total RAM     : {C_BOLD}{tot_ram} MB{C_RESET}")
+    print(f"  • Available RAM : {C_BOLD}{avail_ram} MB{C_RESET}")
+
+    # Check if chat engine is up
+    try:
+        r = requests.get(f"http://127.0.0.1:{CHAT_PORT}/props", timeout=1)
+        engine_online = (r.status_code == 200)
+    except Exception:
+        engine_online = False
+
+    if not engine_online:
+        print(f"\n  {C_YELLOW}[!] Chat engine on port {CHAT_PORT} is not running.{C_RESET}")
+        print("      Start Wola with 'wola.r' to run live speed benchmarks.")
+        print(f"\n{C_CYAN}──────────────────────────────────────────────────────────────────{C_RESET}")
+    else:
+        results = benchmark_inference()
+        if results:
+            gen_spd, eval_spd, ttft, n_tok = results
+            print(f"\n  {C_BOLD}BENCHMARK RESULTS:{C_RESET}")
+            print(f"  • Generation Speed  : {C_GREEN}{C_BOLD}{gen_spd:.2f} tokens/sec{C_RESET}")
+            if eval_spd > 0:
+                print(f"  • Prompt Eval Speed : {C_CYAN}{eval_spd:.2f} tokens/sec{C_RESET}")
+            print(f"  • Time to First Tok : {C_YELLOW}{ttft:.2f}s{C_RESET}")
+            print(f"  • Benchmark Sample  : {n_tok} tokens")
+            print(f"{C_CYAN}──────────────────────────────────────────────────────────────────{C_RESET}")
+
+    # Optimal Configuration Recommendations
+    print(f"  {C_BOLD}OPTIMAL HARDWARE RECOMMENDATIONS:{C_RESET}")
+    rec_threads = min(4, cores)
+    if cores >= 8:
+        print(f"  • Threads (CHAT_THREADS): {C_GREEN}{rec_threads}{C_RESET} (Uses primary performance cluster)")
+    else:
+        print(f"  • Threads (CHAT_THREADS): {C_GREEN}{rec_threads}{C_RESET}")
+
+    if avail_ram > 3500:
+        rec_ctx = 4096
+    elif avail_ram > 2000:
+        rec_ctx = 2048
+    else:
+        rec_ctx = 1024
+
+    print(f"  • Context Size (CHAT_CTX): {C_GREEN}{rec_ctx}{C_RESET} (Optimized for {avail_ram} MB free RAM)")
+    print(f"  • Flash Attention       : {C_GREEN}auto{C_RESET} (Reduces RAM & boosts prompt eval)")
+    print(f"{C_CYAN}================================================================={C_RESET}")
+
+    apply_ans = input(f"\nApply recommended settings (CHAT_THREADS={rec_threads}, CHAT_CTX={rec_ctx}) to ~/.wolarc? (y/N): ").strip().lower()
+    if apply_ans == "y":
+        os.system(f"wola.t CHAT_THREADS {rec_threads}")
+        os.system(f"wola.t CHAT_CTX {rec_ctx}")
+        print(f"{C_GREEN}[+] Configuration updated! Changes take effect on next 'wola.r'.{C_RESET}")
+
+if __name__ == "__main__":
+    main()

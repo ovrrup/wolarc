@@ -255,7 +255,7 @@ def render():
     out.append(f"{C_CYAN}│{C_RESET}  • Nodes     : chat:{p_chat} | emb:{p_emb} | api:{p_agent} | tun:{p_tun}                  {C_CYAN}│{C_RESET}")
 
     out.append(f"{C_CYAN}╰────────────────────────────────────────────────────────────────╯{C_RESET}")
-    out.append(f"  {C_BOLD}[q]{C_RESET} Quit   {C_BOLD}[r]{C_RESET} Redraw   {C_BOLD}[s]{C_RESET} Start/Stop   {C_BOLD}[u]{C_RESET} Update   {C_BOLD}[h]{C_RESET} Manual")
+    out.append(f"  {C_BOLD}[q]{C_RESET} Quit  {C_BOLD}[r]{C_RESET} Redraw  {C_BOLD}[s]{C_RESET} Toggle  {C_BOLD}[c]{C_RESET} Chat  {C_BOLD}[l]{C_RESET} Link/QR  {C_BOLD}[u]{C_RESET} Update  {C_BOLD}[h]{C_RESET} Menu")
 
     sys.stdout.write("\n".join(out) + "\n")
     sys.stdout.flush()
@@ -295,6 +295,19 @@ def main():
                         else:
                             os.system("wola.r")
                         time.sleep(1.5)
+                        if is_tty and ORIG_TERMIOS:
+                            tty.setcbreak(sys.stdin.fileno())
+                        sys.stdout.write("\033[2J" + HIDE_CURSOR)
+                    elif ch == 'c':
+                        cleanup()
+                        os.system("wola.chat")
+                        if is_tty and ORIG_TERMIOS:
+                            tty.setcbreak(sys.stdin.fileno())
+                        sys.stdout.write("\033[2J" + HIDE_CURSOR)
+                    elif ch == 'l':
+                        cleanup()
+                        os.system("wola.url")
+                        input("\nPress Enter to return to Dashboard...")
                         if is_tty and ORIG_TERMIOS:
                             tty.setcbreak(sys.stdin.fileno())
                         sys.stdout.write("\033[2J" + HIDE_CURSOR)

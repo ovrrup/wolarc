@@ -79,57 +79,120 @@ def record_metrics(timings, cfg):
     except Exception:
         pass
 
+_QUERY_EMBED_CACHE = {}
+_VECTOR_STORE = {"mtime": 0, "matrix": None, "metadata": []}
+
 def get_query_vector(text, embed_port):
+    text_key = text.strip()
+    if not text_key:
+        return []
+    if text_key in _QUERY_EMBED_CACHE:
+        return _QUERY_EMBED_CACHE[text_key]
+
     try:
         url = f"http://127.0.0.1:{embed_port}/embedding"
         res = requests.post(url, json={"content": text}, timeout=10)
         data = res.json()
+        vec = []
         if isinstance(data, list) and len(data) > 0:
             first = data[0]
-            return first.get("embedding", []) if isinstance(first, dict) else first
+            vec = first.get("embedding", []) if isinstance(first, dict) else first
         elif isinstance(data, dict):
             if "embedding" in data:
-                return data["embedding"]
-            data_list = data.get("data", [])
-            if data_list and isinstance(data_list[0], dict):
-                return data_list[0].get("embedding", [])
+                vec = data["embedding"]
+            else:
+                data_list = data.get("data", [])
+                if data_list and isinstance(data_list[0], dict):
+                    vec = data_list[0].get("embedding", [])
+        if vec:
+            if len(_QUERY_EMBED_CACHE) > 256:
+                _QUERY_EMBED_CACHE.pop(next(iter(_QUERY_EMBED_CACHE)))
+            _QUERY_EMBED_CACHE[text_key] = vec
+            return vec
     except Exception:
         pass
     return []
 
-def search_knowledge(query, cfg):
-    db_file = cfg["DB_FILE"]
+def load_vector_store(db_file):
+    global _VECTOR_STORE
     if not os.path.exists(db_file):
-        return []
+        return None, []
+    mtime = os.path.getmtime(db_file)
+    if _VECTOR_STORE["matrix"] is not None and _VECTOR_STORE["mtime"] == mtime:
+        return _VECTOR_STORE["matrix"], _VECTOR_STORE["metadata"]
+
     try:
         with open(db_file, "r") as f:
             db = json.load(f)
     except Exception:
-        return []
+        return None, []
 
-    raw_q = get_query_vector(query, cfg["EMBED_PORT"])
-    if not raw_q:
-        return []
-    q_vec = np.array(raw_q, dtype=float).flatten()
-    if q_vec.size == 0 or np.linalg.norm(q_vec) == 0:
-        return []
-    q_norm = q_vec / np.linalg.norm(q_vec)
+    vectors = []
+    metadata = []
+    dim = None
 
-    results = []
     for file_path, file_data in db.items():
+        fname = file_data.get("filename", os.path.basename(file_path))
         for chunk in file_data.get("chunks", []):
             raw_v = chunk.get("vector", [])
             if not raw_v:
                 continue
-            vec = np.array(raw_v, dtype=float).flatten()
-            if vec.size == 0 or np.linalg.norm(vec) == 0 or vec.shape != q_norm.shape:
+            v = np.array(raw_v, dtype=np.float32).flatten()
+            if dim is None:
+                dim = v.size
+            elif v.size != dim:
                 continue
-            similarity = float(np.dot(q_norm, vec / np.linalg.norm(vec)))
-            if similarity >= cfg["SIMILARITY_THRESHOLD"]:
-                results.append((similarity, chunk.get("text", ""), file_data.get("filename", "")))
+            norm = np.linalg.norm(v)
+            if norm > 0:
+                vectors.append(v / norm)
+                metadata.append({
+                    "text": chunk.get("text", ""),
+                    "filename": fname
+                })
 
-    results.sort(key=lambda x: x[0], reverse=True)
-    return results[:cfg["TOP_K"]]
+    if vectors:
+        matrix = np.vstack(vectors)
+    else:
+        matrix = None
+
+    _VECTOR_STORE = {"mtime": mtime, "matrix": matrix, "metadata": metadata}
+    return matrix, metadata
+
+def search_knowledge(query, cfg):
+    db_file = cfg["DB_FILE"]
+    raw_q = get_query_vector(query, cfg["EMBED_PORT"])
+    if not raw_q:
+        return []
+    q_vec = np.array(raw_q, dtype=np.float32).flatten()
+    q_norm_val = np.linalg.norm(q_vec)
+    if q_vec.size == 0 or q_norm_val == 0:
+        return []
+    q_norm = q_vec / q_norm_val
+
+    matrix, metadata = load_vector_store(db_file)
+    if matrix is None or len(metadata) == 0:
+        return []
+
+    if matrix.shape[1] != q_norm.size:
+        return []
+
+    # Instant vectorized similarity calculation across all chunks
+    sims = np.dot(matrix, q_norm)
+    threshold = cfg["SIMILARITY_THRESHOLD"]
+    top_k = cfg["TOP_K"]
+
+    matched_indices = np.where(sims >= threshold)[0]
+    if len(matched_indices) == 0:
+        return []
+
+    sorted_sub = matched_indices[np.argsort(-sims[matched_indices])]
+    results = []
+    for idx in sorted_sub[:top_k]:
+        score = float(sims[idx])
+        meta = metadata[idx]
+        results.append((score, meta["text"], meta["filename"]))
+
+    return results
 
 def build_rag_prompt(messages, cfg):
     last_user_msg = ""
@@ -167,6 +230,29 @@ def build_rag_prompt(messages, cfg):
                 modified_messages.append(msg)
     return modified_messages
 
+def get_active_tunnel_url():
+    url_file = os.path.expanduser("~/.wola_url")
+    if os.path.exists(url_file):
+        try:
+            with open(url_file, "r") as f:
+                content = f.read().strip()
+                if content.startswith("http"):
+                    return content
+        except Exception:
+            pass
+    # Fallback to tunnel.log
+    t_log = os.path.expanduser("~/tunnel.log")
+    if os.path.exists(t_log):
+        try:
+            import re
+            with open(t_log, "r") as f:
+                urls = re.findall(r"https://[a-zA-Z0-9.-]+(?:\.lhr\.life|\.serveo\.net|\.pinggy\.link|\.free\.pinggy\.link)", f.read())
+                if urls:
+                    return urls[-1]
+        except Exception:
+            pass
+    return "Not active"
+
 @app.route("/", methods=["GET"])
 def index():
     return "<h1>Local RAG Agent Online</h1>"
@@ -174,6 +260,37 @@ def index():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+@app.route("/tunnel", methods=["GET"])
+def tunnel():
+    return jsonify({"tunnel_url": get_active_tunnel_url()})
+
+@app.route("/status", methods=["GET"])
+@app.route("/v1/status", methods=["GET"])
+def server_status():
+    cfg = load_cfg()
+    db_file = cfg["DB_FILE"]
+    docs = 0
+    chunks = 0
+    if os.path.exists(db_file):
+        try:
+            with open(db_file, "r") as f:
+                db = json.load(f)
+                docs = len(db)
+                chunks = sum(len(v.get("chunks", [])) for v in db.values())
+        except Exception:
+            pass
+    return jsonify({
+        "status": "online",
+        "tunnel_url": get_active_tunnel_url(),
+        "knowledge_base": {
+            "documents": docs,
+            "chunks": chunks
+        },
+        "temperature": cfg["TEMPERATURE"],
+        "top_k": cfg["TOP_K"],
+        "similarity_threshold": cfg["SIMILARITY_THRESHOLD"]
+    })
 
 @app.route("/models", methods=["GET"])
 @app.route("/v1/models", methods=["GET"])

@@ -1,6 +1,7 @@
 *.gguf
 *.bin
 *.log
+!bin/wola.log
 *.lock
 *.tmp
 .wola.lock

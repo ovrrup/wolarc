@@ -93,6 +93,8 @@ def chunk_text(text, max_chars=CHUNK_SIZE):
         chunks.append(current.strip())
     return chunks if chunks else [text]
 
+import hashlib
+
 def index_file(filepath):
     if not filepath.endswith((".txt", ".md", ".pdf")):
         return
@@ -101,26 +103,50 @@ def index_file(filepath):
         if not content:
             return
 
+        db = load_db()
+        existing_map = {}
+        if filepath in db:
+            for old_c in db[filepath].get("chunks", []):
+                h = old_c.get("hash") or hashlib.sha256(old_c.get("text", "").encode("utf-8")).hexdigest()
+                if old_c.get("vector"):
+                    existing_map[h] = old_c["vector"]
+
         chunks = chunk_text(content)
         records = []
+        new_count = 0
+        reused_count = 0
+
         for idx, chunk in enumerate(chunks):
-            vector = get_embedding(chunk)
-            if vector:
+            c_hash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+            if c_hash in existing_map:
                 records.append({
                     "chunk_id": idx,
                     "text": chunk,
-                    "vector": vector
+                    "hash": c_hash,
+                    "vector": existing_map[c_hash]
                 })
+                reused_count += 1
+            else:
+                vector = get_embedding(chunk)
+                if vector:
+                    records.append({
+                        "chunk_id": idx,
+                        "text": chunk,
+                        "hash": c_hash,
+                        "vector": vector
+                    })
+                    new_count += 1
 
         if records:
-            db = load_db()
+            if new_count == 0 and filepath in db and len(records) == len(db[filepath].get("chunks", [])):
+                return
             db[filepath] = {
                 "filename": os.path.basename(filepath),
                 "chunks": records,
                 "updated_at": time.time()
             }
             save_db(db)
-            print(f"[Indexed] {os.path.basename(filepath)} ({len(records)} chunks)")
+            print(f"[Indexed] {os.path.basename(filepath)} ({new_count} new, {reused_count} cached chunks)")
     except Exception as e:
         print(f"[Error] Processing {filepath}: {e}")
 

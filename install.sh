@@ -237,6 +237,10 @@ deploy_binaries() {
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.rs"
     ln -sf "$TARGET_BIN/wola-h" "$TARGET_BIN/wola.h"
     ln -sf "$TARGET_BIN/wola.u" "$TARGET_BIN/wola.upgrade"
+    ln -sf "$TARGET_BIN/wola.url" "$TARGET_BIN/wola.link"
+    ln -sf "$TARGET_BIN/wola.chat" "$TARGET_BIN/wola.c"
+    ln -sf "$TARGET_BIN/wola.bench" "$TARGET_BIN/wola.b"
+    ln -sf "$TARGET_BIN/wola.log" "$TARGET_BIN/wola.logs"
 
     # Save commit version if in git repo
     if [ -d "$DIR/.git" ]; then
@@ -244,7 +248,7 @@ deploy_binaries() {
     fi
 
     echo -e "  ${C_GREEN}✓ Installed commands into ${TARGET_BIN}:${C_RESET}"
-    echo -e "    wola.r  wola.k  wola.rs  wola.d  wola.th  wola.gt  wola.t  wola.m  wola.i  wola.u  wola-h"
+    echo -e "    wola.r  wola.k  wola.rs  wola.d  wola.url  wola.chat  wola.bench  wola.log  wola.th  wola.gt  wola.t  wola.m  wola.i  wola.u  wola-h"
 }
 
 # -------------------------------------------------------------
@@ -255,13 +259,17 @@ post_install() {
     echo -e "  ${C_BOLD}${C_GREEN}✓ WOLARC INSTALLATION COMPLETE!${C_RESET}"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
     echo -e "  ${C_BOLD}Commands Cheatsheet:${C_RESET}"
-    echo -e "    ${C_GREEN}wola.r${C_RESET}    • Start all services (chat, embed, agent API, tunnel)"
-    echo -e "    ${C_RED}wola.k${C_RESET}    • Stop all services cleanly"
-    echo -e "    ${C_CYAN}wola.d${C_RESET}    • Open real-time Telemetry Dashboard"
-    echo -e "    ${C_MAGENTA}wola.th${C_RESET}   • Open real-time Thinking Stream Viewer"
-    echo -e "    ${C_GREEN}wola.gt${C_RESET}   • Open Model Store to download GGUF models"
-    echo -e "    ${C_YELLOW}wola.u${C_RESET}    • Built-in Update Checker and Installer"
-    echo -e "    ${C_YELLOW}wola-h${C_RESET}    • Interactive Command Center"
+    echo -e "    ${C_GREEN}wola.r${C_RESET}     • Start all services (chat, embed, agent API, tunnel)"
+    echo -e "    ${C_RED}wola.k${C_RESET}     • Stop all services cleanly"
+    echo -e "    ${C_CYAN}wola.d${C_RESET}     • Open real-time Telemetry Dashboard"
+    echo -e "    ${C_CYAN}wola.url${C_RESET}   • Remote Gateway URL, latency ping & QR code"
+    echo -e "    ${C_GREEN}wola.chat${C_RESET}  • Interactive CLI chat client with note citations"
+    echo -e "    ${C_YELLOW}wola.bench${C_RESET} • Measure token speed & auto-tune hardware threads"
+    echo -e "    ${C_DIM}wola.log${C_RESET}   • Unified live log monitor & diagnostics"
+    echo -e "    ${C_MAGENTA}wola.th${C_RESET}    • Real-time Thinking Stream Viewer"
+    echo -e "    ${C_GREEN}wola.gt${C_RESET}    • Model Store (Download GGUF models)"
+    echo -e "    ${C_YELLOW}wola.u${C_RESET}     • Built-in Update Checker and Installer"
+    echo -e "    ${C_YELLOW}wola-h${C_RESET}     • Interactive Command Center"
     echo -e "${C_CYAN}=================================================================${C_RESET}"
 
     # Check if models exist in ~/models

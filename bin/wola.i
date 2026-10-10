@@ -1,24 +1,131 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
+# ANSI Colors
+C_RESET="\033[0m"
+C_BOLD="\033[1m"
+C_DIM="\033[2m"
+C_RED="\033[1;31m"
+C_GREEN="\033[1;32m"
+C_YELLOW="\033[1;33m"
+C_CYAN="\033[1;36m"
+C_MAGENTA="\033[1;35m"
+
 CONFIG="$HOME/.wolarc"
 [ -f "$CONFIG" ] && source "$CONFIG"
 
 DB_FILE="${DB_FILE:-$HOME/knowledge_db.json}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$HOME/storage/shared/Documents/agent_knowledge}"
 INDEXER="$HOME/indexer.py"
+AGENT_PORT="${AGENT_PORT:-5000}"
 
 case "$1" in
     "sync")
-        echo "[*] Running knowledge base sync..."
-        python "$INDEXER"
-        echo "[+] Sync complete."
+        echo -e "${C_CYAN}[*] Running knowledge base synchronization...${C_RESET}"
+        python3 "$INDEXER"
+        echo -e "${C_GREEN}[+] Synchronization complete.${C_RESET}"
+        ;;
+    "add")
+        shift
+        TARGET="$1"
+        if [ -z "$TARGET" ] || [ ! -e "$TARGET" ]; then
+            echo -e "${C_RED}[-] Error: Please specify a valid file or directory to import.${C_RESET}"
+            echo "    Example: wola.i add ~/Downloads/notes.md"
+            exit 1
+        fi
+        mkdir -p "$KNOWLEDGE_DIR"
+        echo -e "${C_CYAN}[*] Importing into knowledge base (${KNOWLEDGE_DIR})...${C_RESET}"
+        cp -r "$TARGET" "$KNOWLEDGE_DIR/"
+        fname=$(basename "$TARGET")
+        echo -e "${C_GREEN}[+] Imported '${fname}' into ${KNOWLEDGE_DIR}.${C_RESET}"
+        echo -e "${C_CYAN}[*] Indexing new content...${C_RESET}"
+        python3 "$INDEXER"
+        echo -e "${C_GREEN}[+] Ready! You can test it with: wola.i search \"<query>\"${C_RESET}"
+        ;;
+    "search"|"query")
+        shift
+        QUERY="$*"
+        if [ -z "$QUERY" ]; then
+            echo -e "${C_RED}[-] Error: Please provide a search query.${C_RESET}"
+            echo "    Example: wola.i search \"What is my project roadmap?\""
+            exit 1
+        fi
+        echo -e "${C_CYAN}=================================================================${C_RESET}"
+        echo -e "                   ${C_BOLD}WOLA VECTOR RAG SEARCH${C_RESET}"
+        echo -e "${C_CYAN}=================================================================${C_RESET}"
+        echo -e "  Query: ${C_BOLD}\"${QUERY}\"${C_RESET}\n"
+
+        python3 -c "
+import sys, os, requests, json
+import numpy as np
+
+query = sys.argv[1]
+db_file = os.path.expanduser(sys.argv[2])
+embed_port = sys.argv[3]
+
+if not os.path.exists(db_file):
+    print('[-] Database file not found: ' + db_file)
+    sys.exit(0)
+
+try:
+    res = requests.post(f'http://127.0.0.1:{embed_port}/embedding', json={'content': query}, timeout=10)
+    data = res.json()
+    if isinstance(data, list) and len(data) > 0:
+        q_raw = data[0].get('embedding', []) if isinstance(data[0], dict) else data[0]
+    elif isinstance(data, dict):
+        q_raw = data.get('embedding', data.get('data', [{}])[0].get('embedding', []))
+    else:
+        q_raw = []
+except Exception as e:
+    print(f'[-] Could not contact embedding engine (Port {embed_port}): {e}')
+    sys.exit(1)
+
+if not q_raw:
+    print('[-] Empty embedding returned.')
+    sys.exit(1)
+
+q_vec = np.array(q_raw, dtype=np.float32).flatten()
+q_norm = q_vec / np.linalg.norm(q_vec)
+
+with open(db_file, 'r') as f:
+    db = json.load(f)
+
+vectors = []
+metadata = []
+dim = q_norm.size
+
+for fpath, fdata in db.items():
+    fname = fdata.get('filename', os.path.basename(fpath))
+    for c in fdata.get('chunks', []):
+        v = np.array(c.get('vector', []), dtype=np.float32).flatten()
+        if v.size == dim and np.linalg.norm(v) > 0:
+            vectors.append(v / np.linalg.norm(v))
+            metadata.append({'name': fname, 'text': c.get('text', '')})
+
+if not vectors:
+    print('[-] No matching vectors in database.')
+    sys.exit(0)
+
+mat = np.vstack(vectors)
+sims = np.dot(mat, q_norm)
+top_idx = np.argsort(-sims)[:3]
+
+for rank, idx in enumerate(top_idx, 1):
+    score = float(sims[idx])
+    item = metadata[idx]
+    pct = score * 100
+    color = '\033[1;32m' if score >= 0.65 else '\033[1;33m'
+    print(f'  {rank}. [{item[\"name\"]}] Match: {color}{pct:.1f}%\033[0m')
+    snippet = item['text'][:220].replace('\n', ' ')
+    print(f'     \033[2m\"{snippet}...\"\033[0m\n')
+print('=================================================================')
+" "$QUERY" "$DB_FILE" "${EMBED_PORT:-8081}"
         ;;
     "rebuild"|"clean")
-        echo "[*] Removing vector database ($DB_FILE)..."
+        echo -e "${C_YELLOW}[*] Removing vector database ($DB_FILE)...${C_RESET}"
         rm -f "$DB_FILE"
-        echo "[*] Re-indexing notes from scratch..."
-        python "$INDEXER"
-        echo "[+] Rebuild complete."
+        echo -e "${C_CYAN}[*] Re-indexing notes from scratch...${C_RESET}"
+        python3 "$INDEXER"
+        echo -e "${C_GREEN}[+] Rebuild complete.${C_RESET}"
         ;;
     "status")
         python3 -c '
@@ -47,10 +154,17 @@ else:
 ' "$DB_FILE"
         ;;
     "list")
-        echo "[*] Source Documents in $KNOWLEDGE_DIR:"
+        echo -e "${C_CYAN}[*] Source Documents in ${KNOWLEDGE_DIR}:${C_RESET}"
         ls -lh "$KNOWLEDGE_DIR" 2>/dev/null || echo "[-] Directory empty or not accessible."
         ;;
     *)
-        echo "Usage: wola.i [status | sync | rebuild | list]"
+        echo -e "${C_BOLD}Wola Vector Indexer & Knowledge Manager${C_RESET}"
+        echo "Usage:"
+        echo "  wola.i status             Inspect documents and chunk statistics"
+        echo "  wola.i add <file|dir>     Import document/folder and index immediately"
+        echo "  wola.i search \"<query>\"   Test vector similarity retrieval"
+        echo "  wola.i sync               Trigger incremental scan of knowledge directory"
+        echo "  wola.i rebuild            Purge database and re-vectorize from scratch"
+        echo "  wola.i list               List raw source files in knowledge directory"
         ;;
 esac

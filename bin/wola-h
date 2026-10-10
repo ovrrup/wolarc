@@ -55,21 +55,27 @@ show_manual() {
     echo -e "   ${C_YELLOW}wola.rs${C_RESET}            Restart all services (clean shutdown -> boot)"
     echo -e "   ${C_CYAN}wolarc status${C_RESET}      Inspect process PIDs and listening ports"
     echo ""
-    echo -e " ${C_BOLD}2. LIVE MONITORING & TELEMETRY${C_RESET}"
+    echo -e " ${C_BOLD}2. CONNECTIVITY & CHAT CLIENT${C_RESET}"
+    echo -e "   ${C_CYAN}wola.url${C_RESET}           Tunnel URL, ping latency, QR code & clipboard"
+    echo -e "   ${C_GREEN}wola.chat${C_RESET}          Interactive CLI chat with note citations"
+    echo ""
+    echo -e " ${C_BOLD}3. LIVE MONITORING & TELEMETRY${C_RESET}"
     echo -e "   ${C_CYAN}wola.d${C_RESET}             Telemetry Dashboard (Tokens/sec, RAM, Health)"
     echo -e "   ${C_MAGENTA}wola.th${C_RESET}            Thinking Stream Viewer (Live <think> tokens)"
+    echo -e "   ${C_DIM}wola.log${C_RESET}           Unified daemon log monitor (chat/embed/tunnel)"
     echo ""
-    echo -e " ${C_BOLD}3. MODELS & VECTOR KNOWLEDGE BASE${C_RESET}"
+    echo -e " ${C_BOLD}4. MODELS & VECTOR KNOWLEDGE BASE${C_RESET}"
     echo -e "   ${C_GREEN}wola.gt${C_RESET}            Interactive Model Store (Download GGUF models)"
     echo -e "   ${C_YELLOW}wola.m${C_RESET}             List local models in ~/models (or 'wola.m chat <f>')"
     echo -e "   ${C_YELLOW}wola.i status${C_RESET}      Inspect indexed documents and chunk statistics"
-    echo -e "   ${C_YELLOW}wola.i sync${C_RESET}        Trigger an immediate notes scan & re-index"
+    echo -e "   ${C_YELLOW}wola.i add <f>${C_RESET}     Import document/folder and index immediately"
+    echo -e "   ${C_YELLOW}wola.i search <q>${C_RESET}  Test vector similarity retrieval directly"
     echo ""
-    echo -e " ${C_BOLD}4. TUNING & HARDWARE CONFIGURATION${C_RESET}"
-    echo -e "   ${C_YELLOW}wola.t${C_RESET}             View active parameters (TEMPERATURE, TOP_K, etc.)"
-    echo -e "   ${C_YELLOW}wola.t <K> <V>${C_RESET}     Tweak parameter (e.g. wola.t TEMPERATURE 0.2)"
+    echo -e " ${C_BOLD}5. TUNING & BENCHMARKING${C_RESET}"
+    echo -e "   ${C_YELLOW}wola.bench${C_RESET}         Measure token speed & auto-tune CPU threads"
+    echo -e "   ${C_YELLOW}wola.t${C_RESET}             View/edit parameters (TEMPERATURE, TOP_K, etc.)"
     echo ""
-    echo -e " ${C_BOLD}5. UPDATES & MAINTENANCE${C_RESET}"
+    echo -e " ${C_BOLD}6. UPDATES & MAINTENANCE${C_RESET}"
     echo -e "   ${C_GREEN}wola.u${C_RESET}             Check for updates and apply latest release"
     echo -e "${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
 }
@@ -78,22 +84,30 @@ interactive_menu() {
     while true; do
         show_manual
         echo -e " ${C_BOLD}QUICK LAUNCH SHORTCUTS:${C_RESET}"
-        echo -e "  [1] Start Node (wola.r)     [4] Dashboard (wola.d)     [7] Model Store (wola.gt)"
-        echo -e "  [2] Stop Node (wola.k)      [5] Think Stream (wola.th) [8] Tune Knobs (wola.t)"
-        echo -e "  [3] Restart (wola.rs)       [6] Check Updates (wola.u) [9] Indexer Info (wola.i)"
+        echo -e "  [1] Start (wola.r)          [5] Remote URL (wola.url)   [9]  Benchmark (wola.bench)"
+        echo -e "  [2] Stop (wola.k)           [6] CLI Chat (wola.chat)    [10] View Logs (wola.log)"
+        echo -e "  [3] Restart (wola.rs)       [7] Think Stream (wola.th)  [11] Model Store (wola.gt)"
+        echo -e "  [4] Dashboard (wola.d)      [8] RAG Search (wola.i)     [u]  Check Updates (wola.u)"
         echo -e "  [0] Exit Menu"
         echo ""
-        read -p "Select option [0-9] (or press Enter to exit): " choice
+        read -p "Select option (or press Enter to exit): " choice
         case "$choice" in
             1) wola.r; read -p "Press Enter to continue..." ;;
             2) wola.k; read -p "Press Enter to continue..." ;;
             3) wola.rs; read -p "Press Enter to continue..." ;;
             4) wola.d ;;
-            5) wola.th ;;
-            6) wola.u; read -p "Press Enter to continue..." ;;
-            7) wola.gt ;;
-            8) wola.t; read -p "Press Enter to continue..." ;;
-            9) wola.i status; read -p "Press Enter to continue..." ;;
+            5) wola.url; read -p "Press Enter to continue..." ;;
+            6) wola.chat ;;
+            7) wola.th ;;
+            8) 
+                read -p "Enter test query for knowledge base: " q_text
+                [ -n "$q_text" ] && wola.i search "$q_text"
+                read -p "Press Enter to continue..."
+                ;;
+            9) wola.bench; read -p "Press Enter to continue..." ;;
+            10) wola.log; read -p "Press Enter to continue..." ;;
+            11) wola.gt ;;
+            "u"|"U") wola.u; read -p "Press Enter to continue..." ;;
             0|"") break ;;
             *) echo "Invalid option." ; sleep 1 ;;
         esac

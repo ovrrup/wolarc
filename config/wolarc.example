@@ -14,11 +14,16 @@ CHAT_PORT="8080"
 EMBED_PORT="8081"
 AGENT_PORT="5000"
 
-# Compute Settings
+# Compute & Hardware Optimizations
 CHAT_THREADS="4"
 EMBED_THREADS="2"
 CHAT_CTX="4096"
 EMBED_CTX="2048"
+FLASH_ATTENTION="auto" # 'auto', 'on', or 'off' (cuts RAM footprint and boosts prompt eval)
+MLOCK="false"          # 'true' pins model weights in RAM to prevent Android OS swapping
+
+# Tunnel Provider
+TUNNEL_PROVIDER="auto" # 'auto' (fallback chain), 'localhost.run', 'serveo', or 'pinggy'
 
 # Inference & RAG Parameters
 TEMPERATURE="0.3"

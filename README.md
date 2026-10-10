@@ -104,11 +104,15 @@ This boots:
 | `wola.rs` | **Restart** all services |
 | `wolarc status` | View active process PIDs and listening ports |
 | `wola.d` | Open the live **telemetry dashboard** (tokens/s, memory, health) |
+| `wola.url` | **Remote tunnel URL**, latency test, ASCII QR code & clipboard |
+| `wola.chat` | **Interactive in-terminal chat** with live token stream & RAG notes |
+| `wola.bench` | **Hardware benchmark** (tokens/sec) & optimal thread auto-tuner |
+| `wola.log` | Unified live daemon **log follower** (`chat`, `embed`, `tunnel`) |
 | `wola.th` | Open the real-time **thinking stream viewer** |
 | `wola.gt` | Open the **model store** (browse & download from Hugging Face) |
 | `wola.m` | List models in `~/models` or switch active models (`wola.m chat <file>`) |
 | `wola.t` | View and edit configuration parameters (`wola.t KEY VALUE`) |
-| `wola.i` | Manage document index (`wola.i status`, `wola.i sync`, `wola.i rebuild`) |
+| `wola.i` | Manage vector index (`wola.i status`, `wola.i add <f>`, `wola.i search <q>`) |
 | `wola.u` | **Check for updates** & upgrade to latest release (`wola.u`) |
 | `wola-h` | Interactive **command center** and quick launcher |
 
@@ -128,9 +132,24 @@ Engine knobs (applied on next `wola.r` startup):
 ```bash
 wola.t CHAT_THREADS 4               # CPU threads for chat inference
 wola.t CHAT_CTX 4096                # Context window size in tokens
-wola.t EMBED_THREADS 2              # CPU threads for embedding
-wola.t EMBED_CTX 2048               # Embedding context window
+wola.t FLASH_ATTENTION auto         # Flash Attention (auto / on / off)
+wola.t MLOCK false                  # Pin model in RAM (true / false)
+wola.t TUNNEL_PROVIDER auto         # auto (fallback), localhost.run, serveo, or pinggy
 ```
+
+---
+
+## Multi-Provider Tunneling & Remote Access
+
+Wola includes a self-healing multi-provider SSH tunnel engine that automatically falls back across providers if one is unreachable or rate-limited:
+1. `localhost.run`
+2. `serveo.net`
+3. `pinggy.io`
+
+- **Instant URL Delivery**: The active URL is stored in `~/.wola_url` and accessible anytime via `wola.url`.
+- **In-Terminal QR Code**: Run `wola.url` to display an ASCII QR code to scan with your phone camera.
+- **Clipboard Sync**: Automatically copies to your Android clipboard on Termux.
+- **Provider Switching**: Run `wola.url switch serveo` or `wola.url switch pinggy` to switch tunnel routes on the fly.
 
 ---
 
@@ -138,7 +157,7 @@ wola.t EMBED_CTX 2048               # Embedding context window
 
 Connect any OpenAI-compatible client (Chatbox, Obsidian, NextChat, OpenWebUI):
 
-- **Base URL**: `https://<your-subdomain>.lhr.life/v1` (displayed upon starting `wola.r`)
+- **Base URL**: `https://<your-subdomain>.lhr.life/v1` (displayed via `wola.url`)
 - **API Key**: `sk-test` (or any non-empty string)
 - **Model**: Auto-detected or enter active model name
 
