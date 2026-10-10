@@ -6,6 +6,12 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 
 ---
 
+> 📖 **Guides & Documentation**:
+> - [**Installation & Complete User Guide (`GETTING_STARTED.md`)**](GETTING_STARTED.md) — Step-by-step installation on Termux & Linux, model downloads, RAG setup, remote client app pairing (Chatbox, Obsidian, NextChat), and troubleshooting.
+> - [**Complete Command Reference (`COMMANDS.md`)**](COMMANDS.md) — Exhaustive CLI reference, TUI shortcuts, configuration variables, and discrete system operations.
+
+---
+
 ## Features
 
 - **Autonomous RAG Engine**: Background daemon (`indexer.py`) automatically indexes notes (`.md`, `.txt`, `.pdf`) into local vector embeddings using cosine similarity.
