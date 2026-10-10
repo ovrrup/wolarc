@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 type ProcessInfo struct {
@@ -104,7 +103,7 @@ func CheckAllServices(chatPort, embedPort string) ServiceStatus {
 
 func StartServices() error {
 	cmd := exec.Command("wola.r")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcessGroup(cmd)
 	return cmd.Start()
 }
 
@@ -115,6 +114,6 @@ func StopServices() error {
 
 func RestartServices() error {
 	cmd := exec.Command("wola.rs")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcessGroup(cmd)
 	return cmd.Start()
 }
