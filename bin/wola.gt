@@ -1,0 +1,436 @@
+#!/data/data/com.termux/files/usr/bin/python3
+import os, sys, requests, json, time, shutil
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+CONFIG_FILE = os.path.expanduser("~/.wolarc")
+MODELS_DIR = os.path.expanduser("~/models")
+
+if os.path.exists(CONFIG_FILE):
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            for line in f:
+                if line.startswith("MODELS_DIR="):
+                    MODELS_DIR = os.path.expanduser(line.split("=", 1)[1].strip("\"' \n"))
+    except Exception:
+        pass
+
+os.makedirs(MODELS_DIR, exist_ok=True)
+
+C_RESET = "\033[0m"
+C_BOLD = "\033[1m"
+C_RED = "\033[1;31m"
+C_GREEN = "\033[1;32m"
+C_YELLOW = "\033[1;33m"
+C_CYAN = "\033[1;36m"
+C_MAGENTA = "\033[1;35m"
+C_DIM = "\033[2m"
+
+EMBED_KEYWORDS = [
+    "embed", "bge", "nomic", "minilm", "e5", "gte", 
+    "sentence-transformers", "bert", "arctic", "snowflake"
+]
+EMBED_PIPELINES = ["sentence-similarity", "feature-extraction"]
+
+CURATED_CHAT = [
+    {
+        "name": "Gemma 2 2B Instruct (Q4_K_M)",
+        "repo": "google/gemma-2-2b-it-GGUF",
+        "file": "2b_it_v2.gguf",
+        "size": "1.6 GB",
+        "desc": "Google's ultra-fast mobile reasoning model"
+    },
+    {
+        "name": "Qwen 2.5 1.5B Instruct (Q4_K_M)",
+        "repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "size": "1.1 GB",
+        "desc": "High token velocity and strong multilingual performance"
+    },
+    {
+        "name": "Llama 3.2 1B Instruct (Q4_K_M)",
+        "repo": "bartowski/Llama-3.2-1B-Instruct-GGUF",
+        "file": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        "size": "0.8 GB",
+        "desc": "Ultra-lightweight footprint, minimal RAM usage"
+    },
+    {
+        "name": "Phi-4 Mini 3.8B Instruct (Q4_K_M)",
+        "repo": "bartowski/Phi-4-mini-instruct-GGUF",
+        "file": "Phi-4-mini-instruct-Q4_K_M.gguf",
+        "size": "2.5 GB",
+        "desc": "Strong reasoning & coding engine (Needs 4.5+ GB free RAM)"
+    }
+]
+
+CURATED_EMBED = [
+    {
+        "name": "Embedding-Gemma 270M (Q8_0)",
+        "repo": "bartowski/embedding-gemma-2-270m-GGUF",
+        "file": "embedding-gemma-2-270m-Q8_0.gguf",
+        "size": "290 MB",
+        "desc": "Native Gemma 256d/512d vector match baseline"
+    },
+    {
+        "name": "BGE-Small English v1.5 (F16)",
+        "repo": "compendiumdev/bge-small-en-v1.5-gguf",
+        "file": "bge-small-en-v1.5-f16.gguf",
+        "size": "67 MB",
+        "desc": "Low-resource retrieval engine with high precision"
+    },
+    {
+        "name": "Nomic Embed Text v1.5 (Q8_0)",
+        "repo": "nomic-ai/nomic-embed-text-v1.5-GGUF",
+        "file": "nomic-embed-text-v1.5.Q8_0.gguf",
+        "size": "145 MB",
+        "desc": "8k long-context document embedding model"
+    }
+]
+
+def create_session():
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], raise_on_status=False)
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=5, pool_maxsize=10)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+HTTP = create_session()
+
+def get_ram_info():
+    total_mb, avail_mb = 0, 0
+    try:
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    total_mb = int(line.split()[1]) // 1024
+                elif line.startswith("MemAvailable:"):
+                    avail_mb = int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return total_mb, avail_mb
+
+def format_bytes(b):
+    if b >= 1024 * 1024 * 1024:
+        return f"{b / (1024 * 1024 * 1024):.2f} GB"
+    elif b >= 1024 * 1024:
+        return f"{b / (1024 * 1024):.1f} MB"
+    return f"{b / 1024:.1f} KB"
+
+def get_active_models():
+    chat_active, embed_active = "", ""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                for line in f:
+                    if line.startswith("CHAT_MODEL="):
+                        chat_active = line.split("=", 1)[1].strip("\"' \n")
+                    elif line.startswith("EMBED_MODEL="):
+                        embed_active = line.split("=", 1)[1].strip("\"' \n")
+        except Exception:
+            pass
+    return chat_active, embed_active
+
+def verify_security(repo_id, filename, pipeline_tag, intended_type):
+    target = f"{repo_id} {filename}".lower()
+    is_embed = any(kw in target for kw in EMBED_KEYWORDS) or (pipeline_tag in EMBED_PIPELINES)
+
+    if intended_type == "embed":
+        if not is_embed:
+            print(f"\n{C_RED}[SECURITY / COMPATIBILITY BLOCKED]{C_RESET}")
+            print(f"Target '{filename}' is NOT an embedding model.")
+            print(f"Detected pipeline: {pipeline_tag or 'Text Generation'}")
+            print("Chat models cannot generate dense vector embeddings for RAG.")
+            return False
+    elif intended_type == "chat":
+        if is_embed:
+            print(f"\n{C_YELLOW}[WARNING]{C_RESET} This model is an embedding encoder.")
+            confirm = input(f"{C_BOLD}Force assign as chat model anyway? (y/N): {C_RESET}").strip().lower()
+            return confirm == "y"
+    return True
+
+def assess_ram_safety(file_size_bytes):
+    if not file_size_bytes:
+        return True
+    _, avail_mb = get_ram_info()
+    if avail_mb <= 0:
+        return True
+    
+    needed_mb = (file_size_bytes / (1024 * 1024)) * 1.25
+    if needed_mb > avail_mb:
+        print(f"\n{C_RED}[RAM WARNING]{C_RESET} This model requires ~{needed_mb:.0f} MB RAM.")
+        print(f"Your device only has {avail_mb} MB available right now.")
+        confirm = input(f"{C_BOLD}Proceed with download anyway? (y/N): {C_RESET}").strip().lower()
+        if confirm != "y":
+            return False
+    return True
+
+def download_file(url, target_filename, file_size=None):
+    dest_path = os.path.join(MODELS_DIR, target_filename)
+    downloaded_existing = 0
+
+    if os.path.exists(dest_path):
+        downloaded_existing = os.path.getsize(dest_path)
+        if file_size and downloaded_existing >= file_size:
+            print(f"{C_GREEN}[*] File already fully downloaded:{C_RESET} {dest_path}")
+            return dest_path
+        elif downloaded_existing > 0:
+            print(f"{C_YELLOW}[*] Incomplete download found ({format_bytes(downloaded_existing)}).{C_RESET}")
+            ans = input("Resume download [r], Overwrite [o], or Cancel [c]? (R/o/c): ").strip().lower()
+            if ans in ["c", "cancel"]:
+                return None
+            elif ans in ["o", "overwrite"]:
+                os.remove(dest_path)
+                downloaded_existing = 0
+
+    if file_size and not assess_ram_safety(file_size):
+        return None
+
+    headers = {}
+    mode = "wb"
+    if downloaded_existing > 0:
+        headers["Range"] = f"bytes={downloaded_existing}-"
+        mode = "ab"
+
+    print(f"\n{C_CYAN}[*] Fetching:{C_RESET} {target_filename}")
+    try:
+        with HTTP.get(url, headers=headers, stream=True, timeout=(5, 30)) as r:
+            if r.status_code not in [200, 206]:
+                print(f"{C_RED}[-] Server responded with status {r.status_code}{C_RESET}")
+                return None
+
+            total_length = r.headers.get("content-length")
+            total_bytes = (int(total_length) + downloaded_existing) if total_length else file_size
+
+            downloaded = downloaded_existing
+            start_time = time.time()
+            last_render_time = 0
+
+            with open(dest_path, mode) as f:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        now = time.time()
+
+                        if now - last_render_time >= 0.25:
+                            last_render_time = now
+                            if total_bytes:
+                                pct = (downloaded / total_bytes) * 100
+                                spd = (downloaded - downloaded_existing) / max(now - start_time, 0.001) / (1024 * 1024)
+                                sys.stdout.write(f"\r  [{pct:5.1f}%] {format_bytes(downloaded)} / {format_bytes(total_bytes)} @ {spd:4.1f} MB/s ")
+                            else:
+                                sys.stdout.write(f"\r  Downloaded: {format_bytes(downloaded)}")
+                            sys.stdout.flush()
+
+            print(f"\n{C_GREEN}[+] Completed:{C_RESET} {target_filename}")
+            return dest_path
+    except Exception as e:
+        print(f"\n{C_RED}[-] Download interrupted: {e}{C_RESET}")
+        return None
+
+def apply_to_config(filename, model_type):
+    confirm = input(f"\n{C_BOLD}Activate '{filename}' as your active {model_type.upper()} model in ~/.wolarc? (Y/n): {C_RESET}").strip().lower()
+    if confirm in ["", "y", "yes"]:
+        os.system(f"wola.m {model_type} {filename}")
+
+def inspect_repo_and_download(repo_id, pipeline_tag=""):
+    print(f"\n{C_CYAN}[*] Fetching file tree for {repo_id}...{C_RESET}")
+    tree_url = f"https://huggingface.co/api/models/{repo_id}/tree/main"
+    try:
+        res = HTTP.get(tree_url, timeout=(4, 10))
+        if res.status_code != 200:
+            print(f"{C_RED}[-] Could not reach repo tree (HTTP {res.status_code}).{C_RESET}")
+            return
+
+        entries = res.json()
+        gguf_files = [
+            {"name": item["path"], "size": item.get("size", 0)} 
+            for item in entries 
+            if item.get("path", "").lower().endswith(".gguf")
+        ]
+
+        if not gguf_files:
+            print(f"{C_YELLOW}[-] No .gguf files found in this repository branch.{C_RESET}")
+            return
+
+        gguf_files.sort(key=lambda x: ("q4" not in x["name"].lower(), x["name"]))
+
+        print(f"\n{C_CYAN}================================================================={C_RESET}")
+        print(f"  GGUF FILES IN {C_BOLD}{repo_id}{C_RESET}")
+        print(f"{C_CYAN}================================================================={C_RESET}")
+        for idx, item in enumerate(gguf_files, 1):
+            sz_str = format_bytes(item["size"]) if item["size"] > 0 else "Unknown size"
+            print(f"  {C_BOLD}[{idx:2d}]{C_RESET} {item['name']:<42} {C_YELLOW}{sz_str:>10}{C_RESET}")
+        print(f"  {C_BOLD}[ 0]{C_RESET} Cancel")
+        print(f"{C_CYAN}-----------------------------------------------------------------{C_RESET}")
+
+        sel = input(f"{C_BOLD}Select file [1-{len(gguf_files)}]: {C_RESET}").strip()
+        if not sel.isdigit() or int(sel) < 1 or int(sel) > len(gguf_files):
+            return
+
+        chosen = gguf_files[int(sel) - 1]
+        role_input = input(f"{C_BOLD}Set role: [c]hat or [e]mbed? (c/e): {C_RESET}").strip().lower()
+        role = "embed" if role_input.startswith("e") else "chat"
+
+        if verify_security(repo_id, chosen["name"], pipeline_tag, role):
+            url = f"https://huggingface.co/{repo_id}/resolve/main/{chosen['name']}"
+            dest = download_file(url, chosen["name"], chosen["size"])
+            if dest:
+                apply_to_config(chosen["name"], role)
+    except Exception as e:
+        print(f"{C_RED}[-] Network error: {e}{C_RESET}")
+
+def search_huggingface():
+    print(f"\n{C_CYAN}================================================================={C_RESET}")
+    print(f"               SEARCH HUGGING FACE REPOSITORIES")
+    print(f"{C_CYAN}================================================================={C_RESET}")
+    query = input(f"{C_BOLD}Search (e.g. 'qwen 2.5', 'phi-4', 'bge', 'gemma 2'): {C_RESET}").strip()
+    if not query:
+        return
+
+    print(f"{C_DIM}[*] Searching...{C_RESET}")
+    api_url = f"https://huggingface.co/api/models?search={query}&filter=gguf&sort=downloads&direction=-1&limit=8&full=false"
+    
+    try:
+        res = HTTP.get(api_url, timeout=(4, 10))
+        if res.status_code != 200:
+            print(f"{C_RED}[-] API query failed (HTTP {res.status_code}).{C_RESET}")
+            return
+        results = res.json()
+        if not results:
+            print(f"{C_YELLOW}[-] No GGUF models matched '{query}'.{C_RESET}")
+            return
+
+        print(f"\n{C_CYAN}-----------------------------------------------------------------{C_RESET}")
+        for idx, item in enumerate(results, 1):
+            m_id = item.get("id", "Unknown")
+            downloads = item.get("downloads", 0)
+            p_tag = item.get("pipeline_tag", "chat/other")
+            print(f"  {C_BOLD}[{idx:2d}]{C_RESET} {C_GREEN}{m_id}{C_RESET}")
+            print(f"       {C_DIM}Task: {p_tag} | Downloads: {downloads:,}{C_RESET}")
+        print(f"  {C_BOLD}[ 0]{C_RESET} Back to Menu")
+        print(f"{C_CYAN}-----------------------------------------------------------------{C_RESET}")
+
+        sel = input(f"{C_BOLD}Select repo [1-{len(results)}]: {C_RESET}").strip()
+        if not sel.isdigit() or int(sel) < 1 or int(sel) > len(results):
+            return
+
+        chosen = results[int(sel) - 1]
+        inspect_repo_and_download(chosen["id"], chosen.get("pipeline_tag", ""))
+    except Exception as e:
+        print(f"{C_RED}[-] Search error: {e}{C_RESET}")
+
+def menu_curated(model_list, model_type):
+    print(f"\n{C_CYAN}================================================================={C_RESET}")
+    print(f"       TESTED {model_type.upper()} MODELS FOR ANDROID")
+    print(f"{C_CYAN}================================================================={C_RESET}")
+    for idx, m in enumerate(model_list, 1):
+        print(f"  {C_BOLD}[{idx}]{C_RESET} {C_GREEN}{m['name']}{C_RESET} ({m['size']})")
+        print(f"      {m['desc']}")
+    print(f"  {C_BOLD}[0]{C_RESET} Back to Menu")
+    print(f"{C_CYAN}-----------------------------------------------------------------{C_RESET}")
+
+    choice = input(f"Select [1-{len(model_list)}]: ").strip()
+    if not choice.isdigit() or int(choice) < 1 or int(choice) > len(model_list):
+        return
+
+    selected = model_list[int(choice) - 1]
+    url = f"https://huggingface.co/{selected['repo']}/resolve/main/{selected['file']}"
+    
+    if verify_security(selected["repo"], selected["file"], "", model_type):
+        dest = download_file(url, selected["file"])
+        if dest:
+            apply_to_config(selected["file"], model_type)
+
+def menu_delete():
+    chat_active, embed_active = get_active_models()
+    files = [f for f in os.listdir(MODELS_DIR) if f.lower().endswith(".gguf")]
+    files.sort()
+
+    if not files:
+        print(f"\n{C_YELLOW}[-] No .gguf models found in {MODELS_DIR}.{C_RESET}")
+        return
+
+    print(f"\n{C_RED}================================================================={C_RESET}")
+    print(f"               {C_BOLD}DELETE DOWNLOADED MODELS{C_RESET}")
+    print(f"{C_RED}================================================================={C_RESET}")
+    for idx, f in enumerate(files, 1):
+        fpath = os.path.join(MODELS_DIR, f)
+        sz_str = format_bytes(os.path.getsize(fpath))
+        tag = ""
+        if f == chat_active and f == embed_active:
+            tag = f" {C_YELLOW}[ACTIVE CHAT & EMBED]{C_RESET}"
+        elif f == chat_active:
+            tag = f" {C_YELLOW}[ACTIVE CHAT]{C_RESET}"
+        elif f == embed_active:
+            tag = f" {C_YELLOW}[ACTIVE EMBED]{C_RESET}"
+        print(f"  {C_BOLD}[{idx:2d}]{C_RESET} {f} ({sz_str}){tag}")
+    print(f"  {C_BOLD}[ 0]{C_RESET} Back to Menu")
+    print(f"{C_RED}-----------------------------------------------------------------{C_RESET}")
+
+    sel = input(f"{C_BOLD}Select file to delete [1-{len(files)}]: {C_RESET}").strip()
+    if not sel.isdigit() or int(sel) < 1 or int(sel) > len(files):
+        return
+
+    target_file = files[int(sel) - 1]
+    target_path = os.path.join(MODELS_DIR, target_file)
+
+    if target_file in [chat_active, embed_active]:
+        print(f"\n{C_RED}[ALERT] '{target_file}' is currently configured as an ACTIVE model!{C_RESET}")
+
+    confirm = input(f"{C_BOLD}Permanently delete '{target_file}'? (y/N): {C_RESET}").strip().lower()
+    if confirm == "y":
+        try:
+            os.remove(target_path)
+            print(f"{C_GREEN}[+] Deleted '{target_file}'.{C_RESET}")
+            if target_file == chat_active:
+                os.system("wola.t CHAT_MODEL \"\"")
+            if target_file == embed_active:
+                os.system("wola.t EMBED_MODEL \"\"")
+        except Exception as e:
+            print(f"{C_RED}[-] Deletion failed: {e}{C_RESET}")
+
+def main():
+    while True:
+        sys.stdout.write("\033[2J\033[H")
+        free_gb = shutil.disk_usage(MODELS_DIR).free // (1024**3)
+        total_ram, avail_ram = get_ram_info()
+        print(f"{C_MAGENTA}================================================================={C_RESET}")
+        print(f"                  {C_BOLD}WOLA MODEL STORE (wola.gt){C_RESET}")
+        print(f"{C_MAGENTA}================================================================={C_RESET}")
+        print(f"  Storage Free  : {C_GREEN}{free_gb} GB{C_RESET}")
+        print(f"  RAM Available : {C_CYAN}{avail_ram} MB / {total_ram} MB{C_RESET}")
+        print("-----------------------------------------------------------------")
+        print(f"  {C_BOLD}[1]{C_RESET} {C_GREEN}Live Hugging Face Search{C_RESET} (Fast tree + file sizes)")
+        print(f"  {C_BOLD}[2]{C_RESET} Curated Chat LLMs (Gemma, Qwen, Llama, Phi)")
+        print(f"  {C_BOLD}[3]{C_RESET} Curated Embedding Models (BGE, Nomic, Gemma-Embed)")
+        print(f"  {C_BOLD}[4]{C_RESET} Enter HF Repo Manually (e.g. bartowski/Qwen2.5-1.5B-Instruct-GGUF)")
+        print(f"  {C_BOLD}[5]{C_RESET} {C_RED}Delete Models{C_RESET} (Free up disk space)")
+        print(f"  {C_BOLD}[0]{C_RESET} Exit")
+        print("=================================================================")
+
+        ans = input(f"{C_BOLD}Select option: {C_RESET}").strip()
+        if ans == "1":
+            search_huggingface()
+        elif ans == "2":
+            menu_curated(CURATED_CHAT, "chat")
+        elif ans == "3":
+            menu_curated(CURATED_EMBED, "embed")
+        elif ans == "4":
+            repo = input("Enter repo (owner/model): ").strip()
+            if repo and "/" in repo:
+                inspect_repo_and_download(repo)
+        elif ans == "5":
+            menu_delete()
+        elif ans == "0":
+            break
+        else:
+            continue
+        input(f"\n{C_BOLD}Press Enter to return to menu...{C_RESET}")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nStore closed.")

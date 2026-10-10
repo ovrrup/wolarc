@@ -1,0 +1,16 @@
+*.gguf
+*.bin
+*.log
+*.lock
+*.tmp
+.wola.lock
+.wola_metrics.json
+.wola_thinking.log
+knowledge_db.json
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.DS_Store

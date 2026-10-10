@@ -1,0 +1,244 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+CONFIG="$HOME/.wolarc"
+LOCK="$HOME/.wola.lock"
+MODELS_DIR="${MODELS_DIR:-$HOME/models}"
+
+C_RESET="\033[0m"
+C_RED="\033[1;31m"
+C_GREEN="\033[1;32m"
+C_YELLOW="\033[1;33m"
+C_CYAN="\033[1;36m"
+C_BOLD="\033[1m"
+
+[ -f "$CONFIG" ] && source "$CONFIG"
+
+is_running() {
+    pgrep -f "llama-server" >/dev/null 2>&1 || pgrep -f "agent.py" >/dev/null 2>&1
+}
+
+find_binary() {
+    if [ -n "$LLAMA_BIN" ] && [ -x "$LLAMA_BIN" ]; then
+        echo "$LLAMA_BIN"
+        return
+    fi
+    if command -v llama-server >/dev/null 2>&1; then
+        command -v llama-server
+        return
+    fi
+    local b
+    b=$(find "$HOME" -maxdepth 4 -name "llama-server" -type f 2>/dev/null | head -n 1)
+    if [ -n "$b" ]; then
+        echo "$b"
+        return
+    fi
+    echo ""
+}
+
+wait_for_service() {
+    local url="$1"
+    local name="$2"
+    local max_tries=25
+    local count=0
+    
+    echo -n -e "[*] Booting ${C_YELLOW}${name}${C_RESET} "
+    while ! curl -s -f "$url" >/dev/null 2>&1; do
+        sleep 1
+        count=$((count + 1))
+        echo -n "."
+        if [ $count -ge $max_tries ]; then
+            echo -e " ${C_RED}FAILED${C_RESET}"
+            return 1
+        fi
+    done
+    echo -e " ${C_GREEN}READY${C_RESET}"
+    return 0
+}
+
+start_node() {
+    if is_running || [ -f "$LOCK" ]; then
+        echo -e "${C_RED}[-] Error: Wola AI Node is ALREADY RUNNING.${C_RESET}"
+        echo "    Switch is ON. Run 'wola.k' to turn it off first."
+        exit 1
+    fi
+
+    BIN=$(find_binary)
+    if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
+        echo -e "${C_RED}[-] Error: 'llama-server' binary not found or not executable.${C_RESET}"
+        echo "    Set LLAMA_BIN directly via: wola.t LLAMA_BIN /path/to/llama-server"
+        exit 1
+    fi
+
+    MODELS_DIR="${MODELS_DIR:-$HOME/models}"
+    if [ -z "$EMBED_MODEL" ]; then
+        EMBED_MODEL=$(find "$MODELS_DIR" -maxdepth 1 -iname "*embed*.gguf" -o -iname "*bge*.gguf" 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
+    fi
+    if [ -z "$CHAT_MODEL" ]; then
+        CHAT_MODEL=$(find "$MODELS_DIR" -maxdepth 1 -iname "*.gguf" ! -iname "*embed*" ! -iname "*bge*" 2>/dev/null | head -n 1 | xargs basename 2>/dev/null)
+    fi
+
+    if [ ! -f "$MODELS_DIR/$EMBED_MODEL" ]; then
+        echo -e "${C_RED}[-] Error: Embedding model not found: $MODELS_DIR/$EMBED_MODEL${C_RESET}"
+        exit 1
+    fi
+    if [ ! -f "$MODELS_DIR/$CHAT_MODEL" ]; then
+        echo -e "${C_RED}[-] Error: Chat model not found: $MODELS_DIR/$CHAT_MODEL${C_RESET}"
+        exit 1
+    fi
+
+    touch "$LOCK"
+    command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
+    echo -e "${C_GREEN}[*] Initializing Wola AI Node Engine...${C_RESET}"
+
+    "$BIN" -m "$MODELS_DIR/$EMBED_MODEL" \
+           --embeddings \
+           --host 127.0.0.1 \
+           -c "${EMBED_CTX:-2048}" -b 2048 -ub 2048 \
+           -t "${EMBED_THREADS:-2}" \
+           --port "${EMBED_PORT:-8081}" > "$HOME/embed.log" 2>&1 &
+
+    "$BIN" -m "$MODELS_DIR/$CHAT_MODEL" \
+           --host 127.0.0.1 \
+           -c "${CHAT_CTX:-4096}" -b 512 -np 1 \
+           -t "${CHAT_THREADS:-4}" \
+           --port "${CHAT_PORT:-8080}" > "$HOME/chat.log" 2>&1 &
+
+    if ! wait_for_service "http://127.0.0.1:${EMBED_PORT:-8081}/props" "Embedding Engine (8081)"; then
+        echo -e "${C_RED}[-] Embedding server failed to start.${C_RESET}"
+        tail -n 10 "$HOME/embed.log"
+        stop_node
+        exit 1
+    fi
+
+    if ! wait_for_service "http://127.0.0.1:${CHAT_PORT:-8080}/props" "Chat LLM Engine (8080)"; then
+        echo -e "${C_RED}[-] Chat server failed to start.${C_RESET}"
+        tail -n 10 "$HOME/chat.log"
+        stop_node
+        exit 1
+    fi
+
+    nohup python3 "$HOME/indexer.py" > "$HOME/indexer.log" 2>&1 &
+    nohup python3 "$HOME/agent.py" > "$HOME/agent.log" 2>&1 &
+
+    local port="${AGENT_PORT:-5000}"
+    if ! wait_for_service "http://127.0.0.1:${port}/health" "Agent API Gateway (${port})"; then
+        echo -e "${C_RED}[-] Agent gateway failed to launch.${C_RESET}"
+        tail -n 10 "$HOME/agent.log"
+        stop_node
+        exit 1
+    fi
+
+    echo -n -e "[*] Negotiating secure tunnel "
+    rm -f "$HOME/tunnel.log"
+    pkill -9 -f "ssh.*localhost.run" 2>/dev/null
+
+    nohup ssh -o StrictHostKeyChecking=no \
+              -o ServerAliveInterval=20 \
+              -o ServerAliveCountMax=3 \
+              -o ExitOnForwardFailure=yes \
+              -R 80:localhost:${port} \
+              nokey@localhost.run > "$HOME/tunnel.log" 2>&1 &
+
+    TUNNEL_URL=""
+    for i in {1..25}; do
+        TUNNEL_URL=$(grep -oE "https://[a-zA-Z0-9.-]+\.lhr\.life" "$HOME/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1)
+        [ -n "$TUNNEL_URL" ] && break
+        echo -n "."
+        sleep 1
+    done
+    echo ""
+
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+    echo -e "  ${C_BOLD}WOLA AI NODE ONLINE [SWITCH: ON]${C_RESET}"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+    if [ -n "$TUNNEL_URL" ]; then
+        echo -e "  ${C_BOLD}Public Base URL :${C_RESET} ${C_GREEN}${TUNNEL_URL}${C_RESET}"
+        echo -e "  ${C_BOLD}API Endpoint    :${C_RESET} ${C_GREEN}${TUNNEL_URL}/v1${C_RESET}"
+    else
+        echo -e "  ${C_YELLOW}Tunnel pending. Run 'cat ~/tunnel.log' to view URL.${C_RESET}"
+    fi
+    echo -e "  Chat Model      : ${C_YELLOW}${CHAT_MODEL}${C_RESET}"
+    echo -e "  Embed Model     : ${C_YELLOW}${EMBED_MODEL}${C_RESET}"
+    echo -e "  API Key         : sk-test"
+    echo -e "${C_CYAN}-----------------------------------------------------------------${C_RESET}"
+    echo -e "  Commands: ${C_BOLD}wola.d${C_RESET} | ${C_BOLD}wola.th${C_RESET} | ${C_BOLD}wola.gt${C_RESET} | ${C_BOLD}wola.t${C_RESET} | ${C_BOLD}wola.rs${C_RESET} | ${C_BOLD}wola.k${C_RESET}"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+}
+
+stop_node() {
+    if ! is_running && [ ! -f "$LOCK" ]; then
+        echo -e "${C_YELLOW}[-] Wola AI Node is ALREADY OFF.${C_RESET}"
+        return 0
+    fi
+    echo -e "${C_YELLOW}[*] Shutting down all Wola services...${C_RESET}"
+    pkill -9 -f "llama-server" 2>/dev/null
+    pkill -9 -f "indexer.py" 2>/dev/null
+    pkill -9 -f "agent.py" 2>/dev/null
+    pkill -9 -f "ssh.*localhost.run" 2>/dev/null
+    pkill -9 -f "ssh.*serveo.net" 2>/dev/null
+    pkill -9 -f "pinggy" 2>/dev/null
+    rm -f "$LOCK"
+    termux-wake-unlock 2>/dev/null
+    echo -e "${C_GREEN}[+] [SWITCH: OFF] Services stopped and wake-lock released.${C_RESET}"
+}
+
+restart_node() {
+    echo -e "${C_YELLOW}[*] Restarting Wola AI Node stack...${C_RESET}"
+    stop_node
+    sleep 2
+    start_node
+}
+
+status_node() {
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+    echo -e "                    WOLA SERVICE STATUS"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+    if [ -f "$LOCK" ]; then
+        echo -e "  Switch State : ${C_GREEN}ON${C_RESET}"
+    else
+        echo -e "  Switch State : ${C_RED}OFF${C_RESET}"
+    fi
+    
+    local c_pid=$(pgrep -f "llama-server.*${CHAT_PORT:-8080}" | head -n 1)
+    local e_pid=$(pgrep -f "llama-server.*${EMBED_PORT:-8081}" | head -n 1)
+    local a_pid=$(pgrep -f "agent.py" | head -n 1)
+    local i_pid=$(pgrep -f "indexer.py" | head -n 1)
+
+    echo -e "  • Chat Server  (8080): $([ -n "$c_pid" ] && echo -e "${C_GREEN}Active (PID $c_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
+    echo -e "  • Embed Server (8081): $([ -n "$e_pid" ] && echo -e "${C_GREEN}Active (PID $e_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
+    echo -e "  • Agent API    (5000): $([ -n "$a_pid" ] && echo -e "${C_GREEN}Active (PID $a_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
+    echo -e "  • Indexer Daemon     : $([ -n "$i_pid" ] && echo -e "${C_GREEN}Active (PID $i_pid)${C_RESET}" || echo -e "${C_RED}Stopped${C_RESET}")"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+}
+
+INVOCATION=$(basename "$0")
+case "$INVOCATION" in
+    "wola.r")  start_node ;;
+    "wola.k")  stop_node ;;
+    "wola.rs") restart_node ;;
+    "wola.d")  exec "$PREFIX/bin/wola.d" ;;
+    "wola.th") exec "$PREFIX/bin/wola.th" ;;
+    "wola.t")  shift; exec "$PREFIX/bin/wola.t" "$@" ;;
+    "wola.m")  shift; exec "$PREFIX/bin/wola.m" "$@" ;;
+    "wola.i")  shift; exec "$PREFIX/bin/wola.i" "$@" ;;
+    "wola.gt") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
+    "wola-h"|"wola.h") exec "$PREFIX/bin/wola-h" ;;
+    *)
+        case "$1" in
+            "r"|"start")       start_node ;;
+            "k"|"stop")        stop_node ;;
+            "rs"|"restart")    restart_node ;;
+            "d"|"dash")        exec "$PREFIX/bin/wola.d" ;;
+            "th"|"think")      exec "$PREFIX/bin/wola.th" ;;
+            "t"|"tuner")       shift; exec "$PREFIX/bin/wola.t" "$@" ;;
+            "m"|"models")      shift; exec "$PREFIX/bin/wola.m" "$@" ;;
+            "i"|"index")       shift; exec "$PREFIX/bin/wola.i" "$@" ;;
+            "gt"|"store")      shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
+            "status")          status_node ;;
+            *)
+                echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
+                echo "Usage: wola.r | wola.k | wola.rs | wola.d | wola.th | wola.gt | wola.t | wola.m | wola.i | wola-h"
+                ;;
+        esac
+        ;;
+esac

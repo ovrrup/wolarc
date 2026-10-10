@@ -1,0 +1,81 @@
+#!/data/data/com.termux/files/usr/bin/python3
+import os, sys, time
+
+LOG_FILE = os.path.expanduser("~/.wola_thinking.log")
+
+C_RESET = "\033[0m"
+C_BOLD = "\033[1m"
+C_GREEN = "\033[1;32m"
+C_YELLOW = "\033[1;33m"
+C_CYAN = "\033[1;36m"
+C_MAGENTA = "\033[1;35m"
+C_DIM = "\033[2m"
+
+def print_header():
+    sys.stdout.write("\033[2J\033[H")
+    print(f"{C_MAGENTA}================================================================={C_RESET}")
+    print(f"            {C_BOLD}WOLA REAL-TIME MODEL THINKING PROCESS{C_RESET}")
+    print(f"{C_MAGENTA}================================================================={C_RESET}")
+    print(f"  Streaming live reasoning tokens & RAG retrieval events...")
+    print(f"  Press {C_BOLD}Ctrl+C{C_RESET} to exit monitor at any time.\n")
+
+def stream_thinking():
+    print_header()
+
+    if not os.path.exists(LOG_FILE):
+        open(LOG_FILE, "w").close()
+
+    in_think_block = False
+
+    with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+        # Seek to end of log
+        f.seek(0, os.SEEK_END)
+        print(f"{C_DIM}[*] Awaiting incoming query from client...{C_RESET}\n")
+
+        while True:
+            line = f.readline()
+            if not line:
+                time.sleep(0.05)
+                continue
+
+            # Event triggers
+            if line.startswith("[PROMPT_START] "):
+                query = line[15:].strip()
+                print(f"\n{C_CYAN}─────────────────────────────────────────────────────────────────{C_RESET}")
+                print(f"{C_BOLD}[USER QUERY]{C_RESET} {query}")
+            elif line.startswith("[RAG_MATCH] "):
+                match_info = line[12:].strip()
+                print(f"{C_YELLOW}[RAG CONTEXT]{C_RESET} {match_info}")
+            elif line.startswith("[STREAM_START]"):
+                print(f"{C_GREEN}[MODEL RESPONSE / THINKING]:{C_RESET}")
+                in_think_block = False
+            elif line.startswith("[STREAM_END]"):
+                if in_think_block:
+                    sys.stdout.write(C_RESET)
+                    in_think_block = False
+                print(f"\n{C_DIM}[Done - generation finished]{C_RESET}\n")
+            else:
+                # Token processing
+                text = line
+                if "<think>" in text:
+                    parts = text.split("<think>")
+                    sys.stdout.write(parts[0])
+                    sys.stdout.write(f"\n{C_MAGENTA}{C_DIM}[Thinking...] ")
+                    in_think_block = True
+                    sys.stdout.write(parts[1])
+                elif "</think>" in text:
+                    parts = text.split("</think>")
+                    sys.stdout.write(parts[0])
+                    sys.stdout.write(f"{C_RESET}\n\n{C_GREEN}[Final Answer]:{C_RESET}\n")
+                    in_think_block = False
+                    sys.stdout.write(parts[1])
+                else:
+                    sys.stdout.write(text)
+                sys.stdout.flush()
+
+if __name__ == "__main__":
+    try:
+        stream_thinking()
+    except KeyboardInterrupt:
+        sys.stdout.write(f"\n{C_RESET}Thinking monitor detached.\n")
+        sys.exit(0)
