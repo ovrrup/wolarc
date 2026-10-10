@@ -130,6 +130,20 @@ header {
   background: rgba(59, 130, 246, 0.22);
   border-color: #60a5fa;
 }
+.btn-think {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.4);
+  color: #c084fc;
+}
+.btn-think:hover {
+  background: rgba(168, 85, 247, 0.22);
+  border-color: #c084fc;
+}
+.btn-think.off {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
 .chat-container {
   flex: 1;
   overflow-y: auto;
@@ -501,6 +515,7 @@ textarea {
     </div>
   </div>
   <div class="header-actions">
+    <button class="btn-action btn-think" id="btn-think" title="Toggle model reasoning / thinking tokens">🧠 Thinking: ON</button>
     <button class="btn-action btn-pair" id="btn-pair">📱 Pair Devices</button>
     <button class="btn-action" id="btn-clear">🗑️ Clear</button>
   </div>
@@ -598,6 +613,8 @@ textarea {
 <script>
 let messages = [];
 let activeAbort = null;
+let currentSessionId = "web_" + Date.now();
+let isThinkingEnabled = true;
 
 const chatStream = document.getElementById("chat-stream");
 const welcomeCard = document.getElementById("welcome-card");
@@ -607,6 +624,7 @@ const iconSend = document.getElementById("icon-send");
 const iconStop = document.getElementById("icon-stop");
 const pairModal = document.getElementById("pair-modal");
 const btnPair = document.getElementById("btn-pair");
+const btnThink = document.getElementById("btn-think");
 const btnClear = document.getElementById("btn-clear");
 const modalClose = document.getElementById("modal-close");
 
@@ -616,8 +634,36 @@ pairModal.addEventListener("click", (e) => {
   if (e.target === pairModal) pairModal.classList.remove("active");
 });
 
+function updateThinkingButton() {
+  if (!btnThink) return;
+  if (isThinkingEnabled) {
+    btnThink.innerText = "🧠 Thinking: ON";
+    btnThink.classList.remove("off");
+    btnThink.title = "Reasoning models will emit internal thought chains";
+  } else {
+    btnThink.innerText = "⚡ Thinking: OFF";
+    btnThink.classList.add("off");
+    btnThink.title = "Direct fast answers (thinking tokens suppressed to save compute)";
+  }
+}
+
+if (btnThink) {
+  btnThink.addEventListener("click", async () => {
+    isThinkingEnabled = !isThinkingEnabled;
+    updateThinkingButton();
+    try {
+      await fetch("/v1/thinking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enable_thinking: isThinkingEnabled })
+      });
+    } catch (e) {}
+  });
+}
+
 btnClear.addEventListener("click", () => {
   messages = [];
+  currentSessionId = "web_" + Date.now();
   chatStream.innerHTML = "";
   chatStream.appendChild(welcomeCard);
   welcomeCard.style.display = "flex";
@@ -673,8 +719,10 @@ function formatMarkdown(text, isStreaming) {
   if (cleanText.includes("<think>")) {
     if (cleanText.includes("</think>")) {
       const parts = cleanText.split("</think>");
-      const rawThought = parts[0].split("<think>")[1] || "";
-      cleanText = parts.slice(1).join("</think>").trim();
+      const preAndThought = parts[0].split("<think>");
+      const preText = preAndThought[0] || "";
+      const rawThought = preAndThought[1] || "";
+      cleanText = (preText ? preText + "\n\n" : "") + parts.slice(1).join("</think>").trim();
       thoughtHtml = `
         <details class="thought-box">
           <summary class="thought-summary">
@@ -683,8 +731,10 @@ function formatMarkdown(text, isStreaming) {
           <div class="thought-body">${escapeHtml(rawThought.trim())}</div>
         </details>`;
     } else {
-      const rawThought = cleanText.split("<think>")[1] || "";
-      cleanText = "";
+      const preAndThought = cleanText.split("<think>");
+      const preText = preAndThought[0] || "";
+      const rawThought = preAndThought[1] || "";
+      cleanText = preText;
       thoughtHtml = `
         <details class="thought-box" open>
           <summary class="thought-summary">
@@ -785,7 +835,12 @@ async function handleSubmit() {
     const res = await fetch("/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, stream: true }),
+      body: JSON.stringify({
+        messages,
+        stream: true,
+        session_id: currentSessionId,
+        enable_thinking: isThinkingEnabled
+      }),
       signal: activeAbort.signal
     });
 
@@ -895,10 +950,19 @@ fetch("/v1/local_info")
 fetch("/v1/status")
   .then(r => r.json())
   .then(data => {
+    if (data.enable_thinking !== undefined) {
+      isThinkingEnabled = !!data.enable_thinking;
+      updateThinkingButton();
+    }
     if (data.knowledge_base) {
       const docs = data.knowledge_base.documents || 0;
       const chunks = data.knowledge_base.chunks || 0;
-      document.getElementById("rag-badge").innerText = `RAG: ${docs} docs (${chunks} chunks)`;
+      const chats = data.knowledge_base.conversation_memories || (data.chats && data.chats.saved_sessions) || 0;
+      let badgeText = `RAG: ${docs} docs (${chunks} chunks)`;
+      if (chats > 0) {
+        badgeText += ` • 💬 ${chats} memories`;
+      }
+      document.getElementById("rag-badge").innerText = badgeText;
     }
   })
   .catch(() => {});

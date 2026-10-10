@@ -46,20 +46,25 @@ def print_banner(status):
     kb_info = status.get("knowledge_base", {})
     docs = kb_info.get("documents", 0)
     chunks = kb_info.get("chunks", 0)
+    convs = kb_info.get("conversation_memories", 0)
+    think_on = status.get("enable_thinking", True)
+    think_str = f"{C_GREEN}ON{C_RESET}" if think_on else f"{C_YELLOW}OFF (fast){C_RESET}"
 
     print(f"{C_CYAN}╭────────────────────────────────────────────────────────────────╮{C_RESET}")
     print(f"{C_CYAN}│{C_RESET}                 {C_BOLD}WOLARC TERMINAL CHAT CLIENT{C_RESET}                    {C_CYAN}│{C_RESET}")
     print(f"{C_CYAN}╰────────────────────────────────────────────────────────────────╯{C_RESET}")
     print(f"  Connected to local Agent Gateway ({C_GREEN}127.0.0.1:{AGENT_PORT}{C_RESET})")
-    print(f"  Vector Knowledge Base: {C_BOLD}{docs}{C_RESET} documents ({chunks} chunks indexed)")
-    print(f"  {C_DIM}Type your message below. Commands: /clear, /notes, /exit{C_RESET}")
+    print(f"  Vector Knowledge Base: {C_BOLD}{docs}{C_RESET} documents ({chunks} chunks | {convs} chat memories)")
+    print(f"  Thinking Mechanism   : {think_str}")
+    print(f"  {C_DIM}Commands: /think [on|off], /notes, /clear, /exit{C_RESET}")
     print(f"{C_CYAN}──────────────────────────────────────────────────────────────────{C_RESET}\n")
 
-def stream_chat(history):
+def stream_chat(history, session_id):
     payload = {
         "messages": history,
         "stream": True,
-        "max_tokens": 1536
+        "max_tokens": 2048,
+        "session_id": session_id
     }
     
     start_time = time.time()
@@ -110,7 +115,7 @@ def stream_chat(history):
         elapsed = max(0.01, time.time() - start_time)
         tok_speed = token_count / elapsed
         sys.stdout.write(f"{C_RESET}\n")
-        print(f"  {C_DIM}• {token_count} tokens in {elapsed:.1f}s ({tok_speed:.1f} tok/s){C_RESET}\n")
+        print(f"  {C_DIM}• {token_count} tokens in {elapsed:.1f}s ({tok_speed:.1f} tok/s | Saved to chats){C_RESET}\n")
         return full_response
 
     except Exception as e:
@@ -123,6 +128,7 @@ def main():
         print("    Start the Wola stack first with: 'wola.r'")
         sys.exit(1)
 
+    session_id = f"cli_{time.strftime('%Y%m%d_%H%M%S')}"
     status = get_status_info()
     print_banner(status)
 
@@ -135,11 +141,28 @@ def main():
                 continue
 
             if user_input.lower() in ["/exit", "/quit", "/q", "exit", "quit"]:
-                print("\nSession ended.")
+                print("\nSession ended. Dialogue saved to local chats directory.")
                 break
             elif user_input.lower() in ["/clear", "/c"]:
                 history = []
-                print(f"{C_YELLOW}[*] Conversation history cleared.{C_RESET}\n")
+                session_id = f"cli_{time.strftime('%Y%m%d_%H%M%S')}"
+                print(f"{C_YELLOW}[*] Conversation history cleared. New session started.{C_RESET}\n")
+                continue
+            elif user_input.lower().startswith("/think"):
+                parts = user_input.split()
+                desired = None
+                if len(parts) > 1:
+                    desired = parts[1].lower() in ["on", "true", "1", "enable"]
+                else:
+                    cur_st = get_status_info()
+                    desired = not cur_st.get("enable_thinking", True)
+                try:
+                    r = requests.post(f"http://127.0.0.1:{AGENT_PORT}/v1/thinking", json={"enable_thinking": desired}, timeout=3)
+                    if r.status_code == 200:
+                        state_lbl = f"{C_GREEN}ENABLED{C_RESET}" if desired else f"{C_YELLOW}DISABLED (fast answer mode){C_RESET}"
+                        print(f"[*] Thinking mechanism {state_lbl}.\n")
+                except Exception as e:
+                    print(f"[-] Could not toggle thinking: {e}\n")
                 continue
             elif user_input.lower() in ["/notes", "/n"]:
                 os.system("wola.i status")
@@ -147,12 +170,12 @@ def main():
                 continue
 
             history.append({"role": "user", "content": user_input})
-            assistant_reply = stream_chat(history)
+            assistant_reply = stream_chat(history, session_id)
             if assistant_reply:
                 history.append({"role": "assistant", "content": assistant_reply})
 
         except (KeyboardInterrupt, EOFError):
-            print("\nExiting chat.")
+            print("\nExiting chat. Dialogue saved to local chats directory.")
             break
 
 if __name__ == "__main__":

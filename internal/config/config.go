@@ -15,6 +15,7 @@ type Config struct {
 	LlamaBin            string
 	ModelsDir           string
 	KnowledgeDir        string
+	ChatsDir            string
 	DBFile              string
 	MetricsFile         string
 	ChatModel           string
@@ -36,6 +37,7 @@ type Config struct {
 	SystemPrompt        string
 	SourceDir           string
 	ChunkSize           int
+	EnableThinking      bool
 	EnableTUI           bool
 }
 
@@ -60,6 +62,7 @@ func DefaultConfig() *Config {
 		LlamaBin:            filepath.Join(home, "llama.cpp", "build", "bin", "llama-server"),
 		ModelsDir:           filepath.Join(home, "models"),
 		KnowledgeDir:        filepath.Join(home, "storage", "shared", "Documents", "agent_knowledge"),
+		ChatsDir:            filepath.Join(home, "storage", "shared", "Documents", "agent_chats"),
 		DBFile:              filepath.Join(home, "knowledge_db.json"),
 		MetricsFile:         filepath.Join(home, ".wola_metrics.json"),
 		ChatModel:           "",
@@ -81,6 +84,7 @@ func DefaultConfig() *Config {
 		SystemPrompt:        "You are an intelligent, perceptive assistant. Answer using your own rich knowledge base, reasoning, and creativity. When personal background notes or memories are available, weave them naturally into your response to personalize it without robotic quotes or disclaimers.",
 		SourceDir:           "",
 		ChunkSize:           1200,
+		EnableThinking:      true,
 		EnableTUI:           true,
 	}
 }
@@ -120,6 +124,8 @@ func LoadConfig() *Config {
 			cfg.ModelsDir = ExpandHome(val)
 		case "KNOWLEDGE_DIR":
 			cfg.KnowledgeDir = ExpandHome(val)
+		case "CHATS_DIR":
+			cfg.ChatsDir = ExpandHome(val)
 		case "DB_FILE":
 			cfg.DBFile = ExpandHome(val)
 		case "METRICS_FILE":
@@ -180,6 +186,9 @@ func LoadConfig() *Config {
 			if n, err := strconv.Atoi(val); err == nil {
 				cfg.ChunkSize = n
 			}
+		case "ENABLE_THINKING":
+			valLower := strings.ToLower(val)
+			cfg.EnableThinking = !(valLower == "false" || valLower == "0" || valLower == "off")
 		case "ENABLE_TUI":
 			valLower := strings.ToLower(val)
 			cfg.EnableTUI = !(valLower == "false" || valLower == "0" || valLower == "off")

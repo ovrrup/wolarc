@@ -14,8 +14,9 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 
 ## Features
 
-- **Universal Multi-Format RAG Engine**: Background daemon (`indexer.py`) automatically vectorizes any files placed in your knowledge folder — documents (`.pdf`, `.docx`, `.epub`, `.md`, `.txt`), audio tracks & transcripts (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`), video metadata & dialogue (`.mp4`, `.mkv`, `.mov`), photos & diagrams with EXIF & OCR (`.jpg`, `.png`, `.svg`), office files (`.pptx`, `.xlsx`), source code, and data tables.
-- **Autonomous Reasoning with Personalized Memory Blending**: The model prioritizes its own foundational intelligence and creative reasoning instead of robotic verbatim quoting. Verified personal knowledge and file excerpts are seamlessly integrated as background memory to deliver personalized, relevant answers without awkward "according to the notes" disclaimers.
+- **Universal Multi-Format RAG & Dialogue Memory Engine**: Background daemon (`indexer.py`) automatically vectorizes files in both your knowledge folder and conversation history folder (`CHATS_DIR`) — documents (`.pdf`, `.docx`, `.epub`, `.md`, `.txt`), chat dialogue turns, audio tracks & transcripts (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`), video metadata & dialogue (`.mp4`, `.mkv`, `.mov`), photos & diagrams with EXIF & OCR (`.jpg`, `.png`, `.svg`), office files (`.pptx`, `.xlsx`), source code, and data tables.
+- **Autonomous Reasoning with Long-Term Memory Blending**: The model prioritizes its own foundational intelligence and creative reasoning instead of robotic verbatim quoting. Verified personal knowledge and past conversational dialogues are seamlessly retrieved as background memory to deliver tailored answers without awkward "according to the notes" disclaimers.
+- **Configurable Thinking Mechanism (`wola think [on|off]`)**: Dynamically toggle model reasoning `<think>` tokens on or off to conserve battery, CPU compute, and response latency across Web UI, Go TUI, CLI (`wola.chat`), and API.
 - **Industry-Standard Go & Bubble Tea TUI (`wola-tui`)**: Fully redesigned in Go using Charm Bubble Tea, Lip Gloss, and Bubbles with animations and micro-transitions:
   - `⚡ Dashboard`: Real-time hardware telemetry, live Unicode velocity sparklines (` ▂▃▄▅▆▇█`), multi-color gradient bars, animated daemon spinners, and glowing radar pulse indicators.
   - `💬 Chat`: Multi-turn conversational chat with live SSE token streaming, token velocity badges (`[⚡ 19.4 tok/s • 342 tok]`), collapsible reasoning blocks (`Ctrl+T`), and dynamic RAG injection.
@@ -27,10 +28,10 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
   - `🍞 Micro-Toast System`: Non-intrusive transient notifications with automatic dismissal for system events and clipboard sync.
 - **Dual Engine Architecture**: Concurrently runs an embedding engine and a chat LLM engine via `llama-server`.
 - **OpenAI-Compatible Gateway**: Exposes `/v1/chat/completions` and `/v1/models` (port 5000), supporting real-time SSE streaming.
-- **Standalone Zero-Dependency Web Chat UI**: Built-in browser interface served directly from the local gateway (`http://<ip>:5000/`) with zero external CDNs or remote font dependencies. Includes markdown rendering, copy buttons, live SSE token streaming, and collapsible cognitive reasoning process boxes (`<think>`).
+- **Standalone Zero-Dependency Web Chat UI**: Built-in browser interface served directly from the local gateway (`http://<ip>:5000/`) with zero external CDNs or remote font dependencies. Includes markdown rendering, copy buttons, live SSE token streaming, thinking on/off toggle button, and collapsible cognitive reasoning process boxes (`<think>`).
 - **Air-Gapped Offline Gateway & Hotspot Pairing (`wola.local` / `wola.hotspot`)**: Connect completely offline over local Wi-Fi, Android portable hotspot (`192.168.43.1`), or USB tethering (`192.168.42.129`) with auto-generated terminal QR codes and `/v1/local_info` discovery.
 - **Dual TUI / CLI Operational Toggle (`wola tui [on|off]`)**: Seamlessly switch between the full-screen Bubble Tea TUI and the classic script-based terminal suite.
-- **Real-Time Thinking Viewer (`wola.th`)**: Inspect model reasoning (`<think>` tokens) and RAG retrieval scores live as inference streams.
+- **Real-Time Thinking Viewer & Switch (`wola.th` / `wola think`)**: Inspect model reasoning (`<think>` tokens) and RAG retrieval scores live as inference streams, or turn off thinking for instant response velocity.
 - **In-Terminal Model Store & Importer (`wola.gt` / `wola.gh`)**: Search and download tested GGUF models directly from Hugging Face or import your own local `.gguf` files with automatic Move/Copy management and role assignment.
 - **Zero-Config Remote Tunneling**: Automatically establishes an encrypted tunnel via `localhost.run`, `serveo.net`, or `pinggy.io` for remote access on phone or PC.
 - **Smart Setup & Conflict Engine**: `install.sh` detects existing processes/configurations and offers Clean Slate (`--clean`), Adjust & Merge BETA (`--adjust`), or Safe Upgrade (`--upgrade`).
@@ -150,7 +151,7 @@ This boots:
 | `wola.chat` | **Interactive in-terminal chat** with live token stream & RAG notes |
 | `wola.bench` | **Hardware benchmark** (tokens/sec) & optimal thread auto-tuner |
 | `wola.log` | Unified live daemon **log follower** (`chat`, `embed`, `tunnel`) |
-| `wola.th` | Open the real-time **thinking stream viewer** |
+| `wola.th` / `wola think` | Open real-time **thinking stream viewer** or **toggle thinking** (`on` / `off` / `status`) |
 | `wola.gt` / `wola.gh` | Open the **model store** & **local GGUF importer** (Hugging Face / custom storage) |
 | `wola.m` | List models in `~/models`, switch models, or import local GGUF (`wola.m import <path>`) |
 | `wola.t` | View and edit configuration parameters (`wola.t KEY VALUE`) |
@@ -170,6 +171,7 @@ wola.t TEMPERATURE 0.6              # Adjust sampling temperature (0.6 optimal f
 wola.t SIMILARITY_THRESHOLD 0.50    # High-confidence vector matching threshold
 wola.t TOP_K 2                      # Number of context chunks injected
 wola.t SYSTEM_PROMPT "..."          # Custom system persona
+wola.t ENABLE_THINKING true         # Toggle reasoning output (true: reasoning tokens, false: direct fast)
 wola.t ENABLE_TUI true              # Default UI mode (true: Go TUI, false: classic CLI)
 ```
 

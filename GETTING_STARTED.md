@@ -285,9 +285,13 @@ When importing:
 
 Wolarc's background indexer automatically watches your notes directory and indexes them using vector cosine similarity.
 
-### Default Knowledge Directory
-- **Termux**: `~/storage/shared/Documents/agent_knowledge` (maps to Android internal storage `/sdcard/Documents/agent_knowledge`).
-- **Linux**: `~/Documents/agent_knowledge`.
+### Default Directories
+- **Knowledge Base (`KNOWLEDGE_DIR`)**:
+  - Termux: `~/storage/shared/Documents/agent_knowledge` (maps to `/sdcard/Documents/agent_knowledge`).
+  - Linux: `~/Documents/agent_knowledge`.
+- **Chat Conversations (`CHATS_DIR`)**:
+  - Termux: `~/storage/shared/Documents/agent_chats` (maps to `/sdcard/Documents/agent_chats`).
+  - Linux: `~/Documents/agent_chats`.
 
 ### Supported File Formats (Zero Limitations)
 You can drop virtually any file type into your knowledge directory:
@@ -297,13 +301,15 @@ You can drop virtually any file type into your knowledge directory:
 - 🖼️ **Photos, Diagrams & Graphics**: `.jpg`, `.jpeg`, `.png`, `.webp`, `.svg`, `.gif`, `.bmp` (extracts EXIF camera tags, date taken, GPS coordinates, dimensions, captions, and Tesseract OCR visual text)
 - 📊 **Office Sheets & Slides**: `.pptx` (slide text), `.xlsx` (tables & cell strings), `.csv`, `.tsv`, `.ods`
 - 💻 **Source Code & Scripts**: `.py`, `.js`, `.ts`, `.html`, `.css`, `.json`, `.yaml`, `.toml`, `.sql`, `.sh`, `.c`, `.cpp`, `.rs`, `.go`, `.java`, etc.
+- 💬 **Conversation Logs**: `.md`, `.chat` files from past interactions are automatically chunked by question-and-answer pairs.
 - 📦 **Universal Fallback**: Any binary or data file is parsed for printable text sequences and indexed.
 
-### Autonomous Intelligence & Personalized Memory
+### Autonomous Intelligence & Long-Term Conversation Memory
 Unlike basic RAG systems that merely quote raw document excerpts or say "The notes do not say this", Wolarc's AI operates with **foundational autonomy and intelligence**:
 1. **Intelligence First**: The model thinks critically and answers using its own vast pre-trained capabilities and logic.
-2. **Personalized Context**: Verified chunks from your personal files and media are supplied in the background as personal memory context.
-3. **Natural Synthesis**: The model seamlessly weaves your facts, code snippets, and preferences into responses without robotic disclaimers.
+2. **Conversation Learning**: All past dialogues from the Web UI, Go TUI, CLI `wola.chat`, or API are saved into `CHATS_DIR` and asynchronously indexed. When you talk to the agent in subsequent sessions, it recalls your past decisions, preferences, and personal facts.
+3. **Dual Context Blending**: Context is cleanly categorized into `[Past Conversation Memory & User Context]` and `[Personal Knowledge & Memory Context]`.
+4. **Natural Synthesis**: The model seamlessly weaves your facts, code snippets, and preferences into responses without robotic disclaimers.
 
 ### Indexing CLI Commands (`wola.i`)
 ```bash
@@ -449,13 +455,23 @@ wola.c
 
 ---
 
-### Deep Thinking Stream Viewer (`wola.th`)
+### Model Thinking & Reasoning Engine (`wola think` / `wola.th`)
 
-For reasoning models like DeepSeek-R1 or Qwen-2.5-Coder:
+For reasoning models like DeepSeek-R1 or Qwen-2.5:
 ```bash
+# Toggle reasoning tokens on or off to save battery, RAM, and time
+wola think on          # Models emit full reasoning thought process (<think>)
+wola think off         # Suppress thinking tokens for direct, low-latency answers
+wola think status      # Inspect current thinking setting
+
+# View reasoning inner monologue in real time
 wola.th
 ```
-Streams the model's inner monologue and reasoning tokens in real time before the final answer is produced.
+
+You can also toggle thinking dynamically at runtime:
+- **Web Chat UI**: Click the `🧠 Thinking: ON` / `⚡ Thinking: OFF` button in the top navigation bar.
+- **Go TUI**: Open Command Palette (`Ctrl+K`) and select `Toggle Thinking Mode`.
+- **CLI Chat (`wola.chat`)**: Type `/think` directly in conversation.
 
 ---
 

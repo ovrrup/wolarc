@@ -49,11 +49,13 @@ if [ -d "/data/data/com.termux/files/usr/bin" ]; then
     IS_TERMUX=true
     TARGET_BIN="${PREFIX:-/data/data/com.termux/files/usr}/bin"
     DEFAULT_KNOWLEDGE="$HOME/storage/shared/Documents/agent_knowledge"
+    DEFAULT_CHATS="$HOME/storage/shared/Documents/agent_chats"
 else
     IS_TERMUX=false
     TARGET_BIN="${HOME}/.local/bin"
     [ -w "/usr/local/bin" ] && TARGET_BIN="/usr/local/bin"
     DEFAULT_KNOWLEDGE="$HOME/Documents/agent_knowledge"
+    DEFAULT_CHATS="$HOME/Documents/agent_chats"
 fi
 
 MODE="interactive"
@@ -372,10 +374,12 @@ home = os.path.expanduser('~')
 cfg_path = os.path.join(home, '.wolarc')
 repo_dir = '$DIR'
 default_knowledge = '$DEFAULT_KNOWLEDGE'
+default_chats = '$DEFAULT_CHATS'
 
 print('  • Reconciling directories and paths...')
 models_dir = os.path.join(home, 'models')
 knowledge_dir = default_knowledge
+chats_dir = default_chats
 
 if os.path.exists(cfg_path):
     bak = f'{cfg_path}.bak.{int(time.time())}'
@@ -394,11 +398,15 @@ if os.path.exists(cfg_path):
         models_dir = os.path.expanduser(existing_vars['MODELS_DIR'])
     if 'KNOWLEDGE_DIR' in existing_vars:
         knowledge_dir = os.path.expanduser(existing_vars['KNOWLEDGE_DIR'])
+    if 'CHATS_DIR' in existing_vars:
+        chats_dir = os.path.expanduser(existing_vars['CHATS_DIR'])
 
 os.makedirs(models_dir, exist_ok=True)
 os.makedirs(knowledge_dir, exist_ok=True)
+os.makedirs(chats_dir, exist_ok=True)
 print(f'    - Verified Models Dir: {models_dir}')
 print(f'    - Verified Knowledge Dir: {knowledge_dir}')
+print(f'    - Verified Chats Dir: {chats_dir}')
 
 existing_ggufs = [f for f in os.listdir(models_dir) if f.lower().endswith('.gguf')] if os.path.exists(models_dir) else []
 chat_candidate = None
@@ -522,6 +530,7 @@ setup_config() {
 
     local models_dir="$HOME/models"
     local knowledge_dir="$DEFAULT_KNOWLEDGE"
+    local chats_dir="$DEFAULT_CHATS"
 
     if [ "$MODE" = "interactive" ] && [ ! -f "$HOME/.wolarc" ]; then
         echo -e "  ${C_BOLD}Configure default directories:${C_RESET}"
@@ -530,10 +539,14 @@ setup_config() {
 
         read -p "  Knowledge base directory [default: $knowledge_dir]: " input_knowledge
         [ -n "$input_knowledge" ] && knowledge_dir=$(eval echo "$input_knowledge")
+
+        read -p "  Chat history directory [default: $chats_dir]: " input_chats
+        [ -n "$input_chats" ] && chats_dir=$(eval echo "$input_chats")
     fi
 
     mkdir -p "$models_dir"
     mkdir -p "$knowledge_dir"
+    mkdir -p "$chats_dir"
 
     # Create config file if not existing
     if [ ! -f "$HOME/.wolarc" ]; then
@@ -549,6 +562,7 @@ def set_val(k, v, path):
 
 set_val('MODELS_DIR', '$models_dir', '$HOME/.wolarc')
 set_val('KNOWLEDGE_DIR', '$knowledge_dir', '$HOME/.wolarc')
+set_val('CHATS_DIR', '$chats_dir', '$HOME/.wolarc')
 " 2>/dev/null
         echo -e "  ${C_GREEN}✓ Initialized ~/.wolarc template with custom paths.${C_RESET}"
     else

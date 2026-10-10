@@ -86,7 +86,55 @@ def stream_thinking():
                     sys.stdout.write(text)
                 sys.stdout.flush()
 
+def handle_cli_args():
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+        cfg_path = os.path.expanduser("~/.wolarc")
+        if arg in ["on", "enable", "1", "true"]:
+            lines = []
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r") as f:
+                    lines = f.readlines()
+            import re
+            pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
+            if any(pat.match(l) for l in lines):
+                lines = [f'ENABLE_THINKING="true"\n' if pat.match(l) else l for l in lines]
+            else:
+                lines.append('ENABLE_THINKING="true"\n')
+            with open(cfg_path, "w") as f:
+                f.writelines(lines)
+            print(f"{C_GREEN}[+] Model reasoning / thinking mechanism ENABLED (<think> on).{C_RESET}")
+            sys.exit(0)
+        elif arg in ["off", "disable", "0", "false"]:
+            lines = []
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r") as f:
+                    lines = f.readlines()
+            import re
+            pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
+            if any(pat.match(l) for l in lines):
+                lines = [f'ENABLE_THINKING="false"\n' if pat.match(l) else l for l in lines]
+            else:
+                lines.append('ENABLE_THINKING="false"\n')
+            with open(cfg_path, "w") as f:
+                f.writelines(lines)
+            print(f"{C_YELLOW}[-] Model reasoning / thinking mechanism DISABLED (direct fast answer mode).{C_RESET}")
+            sys.exit(0)
+        elif arg in ["status"]:
+            status_val = "true (enabled)"
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r") as f:
+                    for line in f:
+                        if line.strip().startswith("ENABLE_THINKING="):
+                            v = line.split("=", 1)[1].strip("\"' \n").lower()
+                            if v in ["false", "0", "off", "no"]:
+                                status_val = "false (disabled)"
+            print(f"{C_BOLD}Model Thinking Status:{C_RESET} {status_val}")
+            print("Usage: wola.th [on|off|status]")
+            sys.exit(0)
+
 if __name__ == "__main__":
+    handle_cli_args()
     try:
         stream_thinking()
     except KeyboardInterrupt:

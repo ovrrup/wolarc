@@ -48,6 +48,7 @@ type ChunkRecord struct {
 
 type FileRecord struct {
 	Filename  string        `json:"filename"`
+	FileType  string        `json:"file_type"`
 	Chunks    []ChunkRecord `json:"chunks"`
 	UpdatedAt float64       `json:"updated_at"`
 }
@@ -55,6 +56,7 @@ type FileRecord struct {
 type DocItem struct {
 	FilePath    string
 	Filename    string
+	FileType    string
 	ChunkCount  int
 	LastUpdated time.Time
 }
@@ -154,6 +156,7 @@ func (m *KnowledgeModel) Refresh() {
 		m.Docs = append(m.Docs, DocItem{
 			FilePath:    fpath,
 			Filename:    fname,
+			FileType:    rec.FileType,
 			ChunkCount:  cCount,
 			LastUpdated: updated,
 		})
@@ -321,8 +324,18 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-func getFileTypeIcon(filename string) string {
+func getFileTypeIcon(filename string, fileType ...string) string {
+	if len(fileType) > 0 && fileType[0] == "conversation" {
+		return "💬 "
+	}
+	base := filepath.Base(filename)
+	if strings.HasPrefix(base, "chat_") {
+		return "💬 "
+	}
 	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == ".chat" {
+		return "💬 "
+	}
 	switch ext {
 	case ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus", ".wma":
 		return "🎵 "
@@ -471,7 +484,7 @@ func (m KnowledgeModel) View() string {
 				timeAgo = doc.LastUpdated.Format("Jan 02 15:04")
 			}
 
-			icon := getFileTypeIcon(doc.Filename)
+			icon := getFileTypeIcon(doc.Filename, doc.FileType)
 			line := fmt.Sprintf("%s%s%-22s %s (%s)",
 				cursor,
 				icon,

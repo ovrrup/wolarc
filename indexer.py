@@ -18,8 +18,10 @@ except ImportError:
 CONFIG_PATH = os.path.expanduser("~/.wolarc")
 
 def load_cfg():
+    default_doc_dir = os.path.expanduser("~/storage/shared/Documents") if os.path.exists(os.path.expanduser("~/storage/shared/Documents")) else os.path.expanduser("~/Documents")
     cfg = {
-        "KNOWLEDGE_DIR": os.path.expanduser("~/storage/shared/Documents/agent_knowledge"),
+        "KNOWLEDGE_DIR": os.path.join(default_doc_dir, "agent_knowledge"),
+        "CHATS_DIR": os.path.join(default_doc_dir, "agent_chats"),
         "DB_FILE": os.path.expanduser("~/knowledge_db.json"),
         "EMBED_PORT": "8081",
         "CHUNK_SIZE": 1200
@@ -32,7 +34,7 @@ def load_cfg():
                     if "=" in line and not line.startswith("#"):
                         k, v = line.split("=", 1)
                         k, v = k.strip(), v.strip("\"' ")
-                        if k in ["KNOWLEDGE_DIR", "DB_FILE"]:
+                        if k in ["KNOWLEDGE_DIR", "CHATS_DIR", "DB_FILE"]:
                             cfg[k] = os.path.expanduser(os.path.expandvars(v))
                         elif k in ["EMBED_PORT"]:
                             cfg[k] = v
@@ -40,10 +42,15 @@ def load_cfg():
                             cfg[k] = int(v)
         except Exception:
             pass
+    for d in [cfg["KNOWLEDGE_DIR"], cfg["CHATS_DIR"]]:
+        try:
+            os.makedirs(d, exist_ok=True)
+        except Exception:
+            pass
     return cfg
 
 CFG = load_cfg()
-WATCH_DIRS = [CFG["KNOWLEDGE_DIR"]]
+WATCH_DIRS = [CFG["KNOWLEDGE_DIR"], CFG["CHATS_DIR"]]
 EMBED_URL = f"http://127.0.0.1:{CFG['EMBED_PORT']}/embedding"
 DB_FILE = CFG["DB_FILE"]
 CHUNK_SIZE = CFG["CHUNK_SIZE"]
@@ -65,6 +72,12 @@ def load_db():
                 save_db(data)
             return data
         except Exception:
+            try:
+                corrupt_bak = f"{DB_FILE}.corrupted.{int(time.time())}"
+                shutil.copy2(DB_FILE, corrupt_bak)
+                print(f"[Warn] Corrupted database backed up to {corrupt_bak}")
+            except Exception:
+                pass
             return {}
     return {}
 
@@ -72,6 +85,11 @@ def save_db(data):
     tmp_file = f"{DB_FILE}.tmp"
     with open(tmp_file, "w") as f:
         json.dump(data, f, indent=2)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except Exception:
+            pass
     os.replace(tmp_file, DB_FILE)
 
 def extract_embedding_vector(data):
@@ -130,21 +148,28 @@ def get_embedding(text):
     text_clean = text.strip()
     if not text_clean:
         return []
+    clean_text = "".join(ch for ch in text_clean if ch in ('\n', '\t', '\r') or ord(ch) >= 32)
+    if len(clean_text) > 1500:
+        clean_text = clean_text[:1500]
+
     port = CFG.get("EMBED_PORT", "8081")
     candidates = [
-        (f"http://127.0.0.1:{port}/v1/embeddings", {"input": text_clean}),
-        (f"http://127.0.0.1:{port}/embedding", {"content": text_clean}),
-        (f"http://127.0.0.1:{port}/embedding", {"input": text_clean}),
+        (f"http://127.0.0.1:{port}/v1/embeddings", {"input": clean_text}),
+        (f"http://127.0.0.1:{port}/embedding", {"content": clean_text}),
+        (f"http://127.0.0.1:{port}/embedding", {"input": clean_text}),
     ]
-    for url, payload in candidates:
-        try:
-            res = http_post_json(url, payload, timeout=20)
-            if res and res.status_code == 200:
-                vec = extract_embedding_vector(res.json())
-                if vec:
-                    return vec
-        except Exception:
-            continue
+    for attempt in range(3):
+        for url, payload in candidates:
+            try:
+                res = http_post_json(url, payload, timeout=15)
+                if res and res.status_code == 200:
+                    vec = extract_embedding_vector(res.json())
+                    if vec and len(vec) > 0 and not any(isinstance(x, (int, float)) and (x != x or abs(x) == float('inf')) for x in vec):
+                        return vec
+            except Exception:
+                continue
+        if attempt < 2:
+            time.sleep(0.3 * (2 ** attempt))
     return []
 
 # =========================================================================
@@ -163,8 +188,11 @@ CODE_EXTS  = {
 }
 
 def categorize_file(filepath):
-    ext = os.path.splitext(filepath)[1].lower()
+    chats_dir = CFG.get("CHATS_DIR", "")
     base = os.path.basename(filepath).lower()
+    ext = os.path.splitext(filepath)[1].lower()
+    if (chats_dir and os.path.abspath(filepath).startswith(os.path.abspath(chats_dir))) or base.startswith("chat_"):
+        return "conversation", ext
     if base in ["dockerfile", "makefile", "license", "readme"]:
         return "code", ext
     if ext in AUDIO_EXTS:
@@ -643,7 +671,13 @@ def extract_text(filepath):
     """Main extraction dispatcher for all file types."""
     category, _ = categorize_file(filepath)
 
-    if category == "audio":
+    if category == "conversation":
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except Exception:
+            return ""
+    elif category == "audio":
         return extract_audio_content(filepath)
     elif category == "video":
         return extract_video_content(filepath)
@@ -657,6 +691,31 @@ def extract_text(filepath):
         return extract_universal_content(filepath)
     else:
         return extract_universal_content(filepath)
+
+def chunk_conversation(text, max_chars=CHUNK_SIZE):
+    """Chunks conversation sessions by dialogue exchanges (User + Assistant pairs)."""
+    pattern = re.compile(r'(?=(?:^|\n)(?:### User|## User|User:|You:))', re.IGNORECASE)
+    parts = pattern.split(text)
+    chunks = []
+    current = ""
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if len(current) + len(part) + 2 <= max_chars:
+            current = (current + "\n\n" + part).strip()
+        else:
+            if current:
+                chunks.append(current)
+            if len(part) > max_chars:
+                for sub in chunk_text(part, max_chars):
+                    chunks.append(sub)
+                current = ""
+            else:
+                current = part
+    if current:
+        chunks.append(current)
+    return chunks if chunks else [text]
 
 def chunk_text(text, max_chars=CHUNK_SIZE):
     paragraphs = text.split("\n\n")
@@ -694,6 +753,7 @@ def index_file(filepath):
         if not content or len(content.strip()) < 10:
             return
 
+        category, _ = categorize_file(filepath)
         db = load_db()
         existing_map = {}
         if filepath in db:
@@ -702,7 +762,10 @@ def index_file(filepath):
                 if old_c.get("vector"):
                     existing_map[h] = old_c["vector"]
 
-        chunks = chunk_text(content)
+        if category == "conversation":
+            chunks = chunk_conversation(content)
+        else:
+            chunks = chunk_text(content)
         records = []
         new_count = 0
         reused_count = 0

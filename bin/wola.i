@@ -15,6 +15,7 @@ CONFIG="$HOME/.wolarc"
 
 DB_FILE="${DB_FILE:-$HOME/knowledge_db.json}"
 KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$HOME/storage/shared/Documents/agent_knowledge}"
+CHATS_DIR="${CHATS_DIR:-$HOME/storage/shared/Documents/agent_chats}"
 INDEXER="$HOME/indexer.py"
 AGENT_PORT="${AGENT_PORT:-5000}"
 
@@ -105,13 +106,26 @@ vectors = []
 metadata = []
 dim = q_norm.size
 
+def get_icon(fn, ftype=""):
+    if ftype == "conversation" or os.path.basename(fn).startswith("chat_"):
+        return "💬"
+    e = os.path.splitext(fn)[1].lower()
+    if e in [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".opus", ".aac"]: return "🎵"
+    if e in [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"]: return "🎬"
+    if e in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"]: return "🖼️"
+    if e in [".py", ".go", ".rs", ".js", ".ts", ".sh", ".json", ".yaml"]: return "💻"
+    if e in [".pdf", ".docx", ".epub", ".rtf", ".odt"]: return "📕"
+    if e in [".pptx", ".xlsx", ".csv", ".tsv"]: return "📊"
+    return "📄"
+
 for fpath, fdata in db.items():
     fname = fdata.get('filename', os.path.basename(fpath))
+    ftype = fdata.get('file_type', '')
     for c in fdata.get('chunks', []):
         v = np.array(c.get('vector', []), dtype=np.float32).flatten()
         if v.size == dim and np.linalg.norm(v) > 0:
             vectors.append(v / np.linalg.norm(v))
-            metadata.append({'name': fname, 'text': c.get('text', '')})
+            metadata.append({'name': fname, 'text': c.get('text', ''), 'type': ftype})
 
 if not vectors:
     print('[-] No matching vectors in database.')
@@ -126,7 +140,8 @@ for rank, idx in enumerate(top_idx, 1):
     item = metadata[idx]
     pct = score * 100
     color = '\033[1;32m' if score >= 0.65 else '\033[1;33m'
-    print(f'  {rank}. [{item[\"name\"]}] Match: {color}{pct:.1f}%\033[0m')
+    icon = get_icon(item['name'], item.get('type', ''))
+    print(f'  {rank}. {icon} [{item["name"]}] Match: {color}{pct:.1f}%\033[0m')
     snippet = item['text'][:220].replace('\n', ' ')
     print(f'     \033[2m\"{snippet}...\"\033[0m\n')
 print('=================================================================')
@@ -143,6 +158,9 @@ print('=================================================================')
         python3 -c '
 import json, os, sys
 p = os.path.expanduser(sys.argv[1])
+kdir = os.path.expanduser(sys.argv[2])
+cdir = os.path.expanduser(sys.argv[3])
+
 if not os.path.exists(p):
     print(f"[-] Database file not found: {p}")
 else:
@@ -150,14 +168,19 @@ else:
         with open(p, "r") as f:
             db = json.load(f)
         total_chunks = sum(len(v.get("chunks", [])) for v in db.values())
+        conv_docs = sum(1 for k, v in db.items() if v.get("file_type") == "conversation" or os.path.basename(k).startswith("chat_"))
+        know_docs = len(db) - conv_docs
         print("==================================================")
         print("           WOLA KNOWLEDGE BASE STATUS")
         print("==================================================")
-        print(f"  Database File : {p}")
-        print(f"  Total Docs    : {len(db)}")
-        print(f"  Total Chunks  : {total_chunks}")
+        print(f"  Database File  : {p}")
+        print(f"  Knowledge Docs : {know_docs} ({kdir})")
+        print(f"  Chat Memories  : {conv_docs} ({cdir})")
+        print(f"  Total Chunks   : {total_chunks}")
         print("--------------------------------------------------")
-        def get_icon(fn):
+        def get_icon(fn, ftype=""):
+            if ftype == "conversation" or os.path.basename(fn).startswith("chat_"):
+                return "💬"
             e = os.path.splitext(fn)[1].lower()
             if e in [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".opus", ".aac"]: return "🎵"
             if e in [".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv"]: return "🎬"
@@ -168,16 +191,21 @@ else:
             return "📄"
         for f_path, data in db.items():
             name = data.get("filename", os.path.basename(f_path))
+            ftype = data.get("file_type", "")
             chunks = len(data.get("chunks", []))
-            print(f"  • {get_icon(name)} {name} ({chunks} chunks)")
+            print(f"  • {get_icon(name, ftype)} {name} ({chunks} chunks)")
         print("==================================================")
     except Exception as e:
         print(f"[-] Error reading database: {e}")
-' "$DB_FILE"
+' "$DB_FILE" "$KNOWLEDGE_DIR" "$CHATS_DIR"
         ;;
     "list")
         echo -e "${C_CYAN}[*] Source Documents in ${KNOWLEDGE_DIR}:${C_RESET}"
         ls -lh "$KNOWLEDGE_DIR" 2>/dev/null || echo "[-] Directory empty or not accessible."
+        if [ -d "$CHATS_DIR" ]; then
+            echo -e "\n${C_CYAN}[*] Saved Dialogue Sessions in ${CHATS_DIR}:${C_RESET}"
+            ls -lh "$CHATS_DIR" 2>/dev/null || echo "[-] No chat sessions saved yet."
+        fi
         ;;
     *)
         echo -e "${C_BOLD}Wola Vector Indexer & Knowledge Manager${C_RESET}"
@@ -187,6 +215,6 @@ else:
         echo "  wola.i search \"<query>\"   Test vector similarity retrieval"
         echo "  wola.i sync               Trigger incremental scan of knowledge directory"
         echo "  wola.i rebuild            Purge database and re-vectorize from scratch"
-        echo "  wola.i list               List raw source files in knowledge directory"
+        echo "  wola.i list               List raw source files in knowledge & chats directories"
         ;;
 esac

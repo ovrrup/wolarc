@@ -403,7 +403,53 @@ with open(path, 'w') as f: f.writelines(lines)
             "url"|"link"|"tunnel") shift; exec "$PREFIX/bin/wola.url" "$@" ;;
             "local"|"offline"|"hotspot"|"lan") shift; exec "$PREFIX/bin/wola.url" local "$@" ;;
             "b"|"bench")       shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
-            "th"|"think")      exec "$PREFIX/bin/wola.th" ;;
+            "th"|"think")
+                shift
+                if [ -n "$1" ]; then
+                    case "$1" in
+                        "on"|"enable"|"1"|"true")
+                            python3 -c "
+import re, os
+path = os.path.expanduser('~/.wolarc')
+lines = []
+if os.path.exists(path):
+    with open(path) as f: lines = f.readlines()
+pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
+if any(pat.match(l) for l in lines):
+    lines = [f'ENABLE_THINKING=\"true\"\n' if pat.match(l) else l for l in lines]
+else:
+    lines.append('ENABLE_THINKING=\"true\"\n')
+with open(path, 'w') as f: f.writelines(lines)
+"
+                            echo -e "${C_GREEN}[+] Model reasoning / thinking mechanism ENABLED (<think> on).${C_RESET}"
+                            exit 0
+                            ;;
+                        "off"|"disable"|"0"|"false")
+                            python3 -c "
+import re, os
+path = os.path.expanduser('~/.wolarc')
+lines = []
+if os.path.exists(path):
+    with open(path) as f: lines = f.readlines()
+pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
+if any(pat.match(l) for l in lines):
+    lines = [f'ENABLE_THINKING=\"false\"\n' if pat.match(l) else l for l in lines]
+else:
+    lines.append('ENABLE_THINKING=\"false\"\n')
+with open(path, 'w') as f: f.writelines(lines)
+"
+                            echo -e "${C_YELLOW}[-] Model reasoning / thinking mechanism DISABLED (direct fast answer mode).${C_RESET}"
+                            exit 0
+                            ;;
+                        "status")
+                            echo -e "${C_BOLD}Model Thinking Status:${C_RESET} ${ENABLE_THINKING:-true}"
+                            echo "Usage: wola think [on|off|status]"
+                            exit 0
+                            ;;
+                    esac
+                fi
+                exec "$PREFIX/bin/wola.th" "$@"
+                ;;
             "t"|"tuner")       shift; exec "$PREFIX/bin/wola.t" "$@" ;;
             "gt"|"gh"|"store") shift; exec "$PREFIX/bin/wola.gt" "$@" ;;
             "u"|"update"|"upgrade") shift; exec "$PREFIX/bin/wola.u" "$@" ;;
@@ -413,7 +459,7 @@ with open(path, 'w') as f: f.writelines(lines)
                     exec wola-tui "$@"
                 fi
                 echo -e "${C_BOLD}Wola AI Node Controller${C_RESET}"
-                echo "Usage: wola [dashboard|chat|models|knowledge|logs|start|stop|restart|status|url|local|tui]"
+                echo "Usage: wola [dashboard|chat|models|knowledge|logs|start|stop|restart|status|url|local|think|tui]"
                 ;;
         esac
         ;;
@@ -428,7 +474,53 @@ with open(path, 'w') as f: f.writelines(lines)
             "c"|"chat")        shift; exec "$PREFIX/bin/wola.chat" "$@" ;;
             "b"|"bench")       shift; exec "$PREFIX/bin/wola.bench" "$@" ;;
             "log"|"logs")      shift; exec "$PREFIX/bin/wola.log" "$@" ;;
-            "th"|"think")      exec "$PREFIX/bin/wola.th" ;;
+            "th"|"think")
+                shift
+                if [ -n "$1" ]; then
+                    case "$1" in
+                        "on"|"enable"|"1"|"true")
+                            python3 -c "
+import re, os
+path = os.path.expanduser('~/.wolarc')
+lines = []
+if os.path.exists(path):
+    with open(path) as f: lines = f.readlines()
+pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
+if any(pat.match(l) for l in lines):
+    lines = [f'ENABLE_THINKING=\"true\"\n' if pat.match(l) else l for l in lines]
+else:
+    lines.append('ENABLE_THINKING=\"true\"\n')
+with open(path, 'w') as f: f.writelines(lines)
+"
+                            echo -e "${C_GREEN}[+] Model reasoning / thinking mechanism ENABLED (<think> on).${C_RESET}"
+                            exit 0
+                            ;;
+                        "off"|"disable"|"0"|"false")
+                            python3 -c "
+import re, os
+path = os.path.expanduser('~/.wolarc')
+lines = []
+if os.path.exists(path):
+    with open(path) as f: lines = f.readlines()
+pat = re.compile(r'^\s*ENABLE_THINKING=.*$')
+if any(pat.match(l) for l in lines):
+    lines = [f'ENABLE_THINKING=\"false\"\n' if pat.match(l) else l for l in lines]
+else:
+    lines.append('ENABLE_THINKING=\"false\"\n')
+with open(path, 'w') as f: f.writelines(lines)
+"
+                            echo -e "${C_YELLOW}[-] Model reasoning / thinking mechanism DISABLED (direct fast answer mode).${C_RESET}"
+                            exit 0
+                            ;;
+                        "status")
+                            echo -e "${C_BOLD}Model Thinking Status:${C_RESET} ${ENABLE_THINKING:-true}"
+                            echo "Usage: wola think [on|off|status]"
+                            exit 0
+                            ;;
+                    esac
+                fi
+                exec "$PREFIX/bin/wola.th" "$@"
+                ;;
             "t"|"tuner")       shift; exec "$PREFIX/bin/wola.t" "$@" ;;
             "m"|"models")      shift; exec "$PREFIX/bin/wola.m" "$@" ;;
             "i"|"index")       shift; exec "$PREFIX/bin/wola.i" "$@" ;;

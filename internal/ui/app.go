@@ -386,6 +386,19 @@ func (m *AppModel) handlePaletteAction(action components.PaletteActionID) {
 		m.Knowledge.Config = m.Config
 		m.Logs.Config = m.Config
 		m.SetToast("Configuration reloaded from ~/.wolarc", components.ToastSuccess)
+	case components.ActionToggleThinking:
+		newVal := !m.Config.EnableThinking
+		m.Config.EnableThinking = newVal
+		valStr := "false"
+		if newVal {
+			valStr = "true"
+		}
+		_ = config.SetConfigKey("ENABLE_THINKING", valStr)
+		if newVal {
+			m.SetToast("Thinking enabled (reasoning tokens active)", components.ToastSuccess)
+		} else {
+			m.SetToast("Thinking disabled (direct fast responses)", components.ToastWarning)
+		}
 	case components.ActionToggleTUI:
 		newVal := !m.Config.EnableTUI
 		m.Config.EnableTUI = newVal

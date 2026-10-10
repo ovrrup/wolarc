@@ -35,6 +35,7 @@ SUBCOMMANDS:
     restart, rs        Restart all services
     url, link          Display active Gateway Tunnel URL
     local, offline     Display Local Offline Gateway & Hotspot Pairing QR
+    think, th [on|off|status] Toggle or view model reasoning thinking state
     tui [on|off|status] Toggle or view default launch mode (TUI vs CLI suite)
 
 HOTKEYS INSIDE TUI:

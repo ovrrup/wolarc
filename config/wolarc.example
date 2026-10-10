@@ -2,6 +2,7 @@
 LLAMA_BIN="$HOME/llama.cpp/build/bin/llama-server"
 MODELS_DIR="$HOME/models"
 KNOWLEDGE_DIR="$HOME/storage/shared/Documents/agent_knowledge"
+CHATS_DIR="$HOME/storage/shared/Documents/agent_chats"
 DB_FILE="$HOME/knowledge_db.json"
 METRICS_FILE="$HOME/.wola_metrics.json"
 
@@ -32,6 +33,10 @@ SIMILARITY_THRESHOLD="0.50"
 TOP_K="2"
 SYSTEM_PROMPT="You are an intelligent, perceptive assistant. Answer using your own rich knowledge base, reasoning, and creativity. When personal background notes or memories are available, weave them naturally into your response to personalize it without robotic quotes or disclaimers."
 
+# Reasoning & Thinking Mechanism
+ENABLE_THINKING="true" # 'true' allows reasoning models to emit <think> chains; 'false' turns off thinking to save compute, RAM & latency
+
 # User Interface Preferences
 ENABLE_TUI="true"       # 'true' launches Go Bubble Tea TUI; 'false' uses classic CLI suite
+
 

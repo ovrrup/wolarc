@@ -17,6 +17,7 @@
 | [`wola.url`](#3-remote-gateway--connectivity) | `wola.link`, `wolarc url` | Show public tunnel URL, QR code, ping latency & copy endpoint |
 | [`wola.local`](#3-remote-gateway--connectivity) | `wola.hotspot`, `wolarc local` | Offline local gateway, zero-dependency Web Chat UI, and QR pairing |
 | [`wola.chat`](#4-interactive-terminal-chat-client) | `wola.c`, `wolarc c` | Interactive CLI chat client with live token streaming and RAG citations |
+| [`wola think`](#5-deep-thinking-stream-viewer) | `wola.th`, `wolarc think` | Toggle model reasoning thinking (`on` / `off` / `status`) or view stream |
 | [`wola.th`](#5-deep-thinking-stream-viewer) | `wolarc th` | Real-time streaming monitor for model reasoning chains (`<think>`) |
 | [`wola.gt`](#6-model-store--local-gguf-importer) | `wola.gh`, `wolarc gt` | Model Store & local GGUF file importer (HuggingFace / storage) |
 | [`wola.m`](#6-model-store--local-gguf-importer) | `wolarc m` | List models in `~/models` or import `.gguf` files via CLI |
@@ -213,17 +214,31 @@ wola.c
 
 ---
 
-## 5. Deep Thinking Stream Viewer
+## 5. Model Thinking & Reasoning Engine
 
-### `wola.th`
-Dedicated real-time reasoning monitor.
+### `wola think` / `wola.th`
+Controls and monitors the cognitive reasoning mechanism (`<think>` tokens) of reasoning models (such as DeepSeek-R1, Qwen-2.5, etc.).
 
 ```bash
-# Stream reasoning tokens live
+# Toggle thinking mode on or off across the node
+wola think on          # Enable internal reasoning tokens
+wola think off         # Disable thinking to save compute, RAM, and time
+wola think status      # Inspect current thinking configuration
+
+# Direct alias commands
+wola.th on
+wola.th off
+wola.th status
+
+# Follow real-time reasoning stream live
 wola.th
 ```
 
-Models supporting reasoning (such as DeepSeek-R1, Qwen-2.5-Coder, etc.) write raw cognitive traces into `~/.wola_thinking.log`. `wola.th` provides a color-highlighted live viewer that strips `<think>` XML tags and displays the model's inner monologue in real time before the final answer is rendered.
+#### Why Disable Thinking?
+- **Compute & Battery Savings**: Suppresses internal `<think>` scratchpads, dramatically reducing token counts, device heating, and power drain on mobile processors.
+- **Immediate Response Speed**: Answers begin streaming instantly without waiting through dozens or hundreds of hidden cognitive deliberation tokens.
+- **Config Persistence**: Toggling thinking updates `ENABLE_THINKING` in `~/.wolarc` and syncs dynamically with the active agent server via `/v1/thinking`.
+- **Live Stream Viewer**: Running `wola.th` without arguments attaches to `~/.wola_thinking.log` to stream the model's inner monologue live as it thinks.
 
 ---
 
@@ -281,7 +296,7 @@ wola.i search "How do I configure network settings?"
 ```
 
 #### Automatic Universal Indexing Daemon (`indexer.py`):
-Runs in the background watching `KNOWLEDGE_DIR` (default: `~/storage/shared/Documents/agent_knowledge`). When files are created, edited, or removed, the indexer automatically extracts semantic content, chunks it, generates vector embeddings via port `8081`, and saves them to `~/knowledge_db.json`.
+Runs in the background watching both `KNOWLEDGE_DIR` (default: `~/storage/shared/Documents/agent_knowledge`) and `CHATS_DIR` (default: `~/storage/shared/Documents/agent_chats`). When files or dialogues are created, edited, or removed, the indexer automatically extracts semantic content, chunks it, generates vector embeddings via port `8081`, and atomically saves them to `~/knowledge_db.json`.
 
 **Supported File Formats (Zero Limitations):**
 - **Documents & E-Books**: `.pdf`, `.docx`, `.epub`, `.rtf`, `.odt`, `.md`, `.txt`, `.html`, `.tex`, `.org`
@@ -290,10 +305,18 @@ Runs in the background watching `KNOWLEDGE_DIR` (default: `~/storage/shared/Docu
 - **Photos & Graphics**: `.jpg`, `.jpeg`, `.png`, `.webp`, `.svg`, `.gif`, `.bmp` (extracts EXIF camera tags, date taken, GPS coordinates, dimensions, captions, and Tesseract OCR visual text)
 - **Office Sheets & Slides**: `.pptx` (slide text), `.xlsx` (tables & cell strings), `.csv`, `.tsv`, `.ods`
 - **Source Code & Configs**: `.py`, `.js`, `.ts`, `.html`, `.css`, `.json`, `.yaml`, `.toml`, `.sql`, `.sh`, `.c`, `.cpp`, `.rs`, `.go`, `.java`, etc.
+- **Chat Conversations & Memories**: `.md`, `.chat` files in `CHATS_DIR` (chunked by dialogue turns so questions and answers stay together)
 - **Universal Fallback**: Any text or binary data file is automatically analyzed and indexed.
 
+#### Conversation Memory & Self-Learning:
+Every chat session conducted through the Web UI, Go TUI, CLI (`wola.chat`), or API (`/v1/chat/completions`) is automatically written to `CHATS_DIR` as a markdown log (`chat_<session_id>.md`). Dialogue turns are asynchronously embedded into the vector store. When the user interacts in future sessions, relevant historical exchanges are retrieved as `[Past Conversation Memory & User Context]`, allowing the model to naturally recall past decisions, project details, and user habits.
+
 #### Personalized Memory & Base Intelligence Blending:
-The local model prioritizes its own foundational intelligence, logic, and creativity. Retrieved file memories are passed as personal context in the system instructions, allowing the model to respond naturally and personally without robotic quoting or awkward "according to the notes" disclaimers.
+The local model prioritizes its own foundational intelligence, logic, and creativity. Retrieved memories are separated into distinct contexts:
+1. `[Past Conversation Memory & User Context]`: User habits, history, instructions, and preferences from past chats.
+2. `[Personal Knowledge & Memory Context]`: Knowledge base notes, media, code, and documentation.
+
+The model seamlessly blends both contexts with its core intelligence to deliver tailored, deeply personalized responses without robotic recitation or awkward "according to the notes" disclaimers.
 
 ---
 
