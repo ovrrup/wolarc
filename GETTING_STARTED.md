@@ -2,9 +2,12 @@
 
 This guide provides step-by-step instructions for installing, configuring, running, and connecting to your **Wolarc** Autonomous Local RAG AI Node on Android (Termux) or Linux.
 
-> 📖 **Comprehensive System Manual**: For deep architecture details, vector math, offline hotspot networking, and the complete 1-to-1 Technical & Casual command matrix, see [**System Architecture & Reference Manual (`DOCUMENTATION.md`)**](DOCUMENTATION.md).
+> 📖 **Guides & Documentation**:
+> - [**System Architecture & Reference Manual (`DOCUMENTATION.md`)**](DOCUMENTATION.md) — Deep architecture details, vector math, offline hotspot networking, and complete 1-to-1 command matrix.
+> - [**Future Milestones & System Roadmap (`ROADMAP.md`)**](ROADMAP.md) — Architectural designs for the resilient client-host connection method and official native Flutter cross-platform companion app.
 
 ---
+
 
 ## Table of Contents
 

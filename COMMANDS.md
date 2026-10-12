@@ -679,3 +679,16 @@ wola.purge --hard -y
 | `-h`, `--help` | Show command usage and description of the 3 hardness levels |
 
 If invoked without arguments (`wola.purge`), an interactive selector menu is displayed with descriptions of each level before any files are modified.
+
+---
+
+## Planned Commands (Roadmap Milestones) 🗺️
+
+As detailed in [**ROADMAP.md**](ROADMAP.md), the upcoming client-host connection fabric and native Flutter companion app will introduce the following strict 1-to-1 command pairs:
+
+| Planned Feature | Casual Name | Technical Name | Description |
+| :--- | :--- | :--- | :--- |
+| **Client Pairing** | `wola.pair` | `wola.pair` | Generate cryptographic QR code / PIN for pairing Flutter and remote client apps |
+| **Connected Peers** | `wola.clients` | `wola.peers` | Inspect active authorized client devices, token scopes, and connection transports |
+| **Connection Diagnostics** | `wola.connection` | `wola.conn` | Benchmark and monitor multi-transport latency (mDNS, LAN, Tailscale, Cloudflare) |
+

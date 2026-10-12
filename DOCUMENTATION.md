@@ -47,6 +47,10 @@
 8. [Configuration Knobs & Environment Variables](#8-configuration-knobs--environment-variables)
 9. [Third-Party Client App Integration Guide](#9-third-party-client-app-integration-guide)
 10. [Daemon Lifecycle & Operating System Integration](#10-daemon-lifecycle--operating-system-integration)
+11. [Future Milestones & System Roadmap](#11-future-milestones--system-roadmap)
+    - [Milestone 1: Reliable & Effective Client-Host Connection Method](#milestone-1-reliable--effective-client-host-connection-method)
+    - [Milestone 2: Native Cross-Platform Flutter Companion App](#milestone-2-native-cross-platform-flutter-companion-app)
+    - [Phased Delivery Schedule](#phased-delivery-schedule)
 
 ---
 
@@ -846,3 +850,54 @@ To ensure services stay online when the user closes their terminal app:
 - Background processes are launched with `setsid -f` or background job detachment with stdout/stderr redirected to log files.
 - Process PIDs are mapped and monitored.
 - Signal traps catch `SIGINT` and `SIGTERM` to perform atomic state teardowns without leaving orphan socket locks.
+
+---
+
+## 11. Future Milestones & System Roadmap
+
+Wolarc's evolution is centered on creating a seamless, distributed personal AI ecosystem while uncompromisingly maintaining local data sovereignty. For full architectural diagrams and phase details, see [**ROADMAP.md**](ROADMAP.md).
+
+### Milestone 1: Reliable & Effective Client-Host Connection Method
+Edge mobile nodes operate across dynamic networks with shifting IP addresses and Carrier-Grade NAT (CGNAT). The future connection fabric establishes an unbreakable link:
+1. **Zero-Configuration Local Discovery (mDNS / Zeroconf)**:
+   - Host announces its presence via `_wolarc._tcp.local` on port 5000.
+   - Client applications instantly discover available Wolarc nodes on the LAN or mobile hotspot without manual IP configuration.
+2. **Resilient Multi-Transport Mesh with Auto-Failover**:
+   - **Tier 1 (LAN)**: Sub-2ms low-latency connection for local Wi-Fi and offline Android hotspots.
+   - **Tier 2 (Tailscale WireGuard Mesh)**: Direct peer-to-peer encrypted WireGuard tunnels across NATs via STUN/DERP.
+   - **Tier 3 (Managed Cloudflare Named Tunnels)**: Authenticated persistent tunnels (`cloudflared`) with custom static hostnames.
+   - **Tier 4 (WebRTC DataChannels)**: Peer-to-peer data channels bypassing CGNAT for direct client-host streaming.
+3. **Resumable Token Streaming & Session Continuity**:
+   - Resumable SSE streams via `Last-Event-ID` buffers, ensuring mobile network transitions (e.g. Wi-Fi dropping to 5G) do not terminate ongoing LLM token generation or drop context.
+   - Stateful ping/pong heartbeats detecting disconnects within 3 seconds.
+4. **Cryptographic Out-of-Band Pairing Protocol**:
+   - Ephemeral Ed25519 pairing key exchange rendered as an ASCII QR code or numeric PIN (`wola.pair`).
+   - Scoped authorization tokens (`chat`, `knowledge`, `admin`) stored in `~/.wola/run/authorized_clients.json`.
+
+### Milestone 2: Native Cross-Platform Flutter Companion App
+An official, high-performance companion app engineered in Flutter (Dart) targeting Android (APK), iOS, Linux, Windows, and macOS:
+1. **Dynamic Connection Hub**:
+   - Instant camera QR code scanner for one-tap pairing with Wolarc host nodes.
+   - Auto-discovers local nodes via mDNS.
+   - Multi-node manager: switch seamlessly between phone nodes, local workstations, and remote home servers.
+2. **Deep Thinking & Streaming Conversational UI**:
+   - Smooth SSE streaming tokens with real-time velocity metrics (`tok/s`).
+   - Expandable, styled `<think>` cognitive reasoning blocks with duration counters and step logs.
+   - Rich Markdown, syntax highlighting across 60+ programming languages, and LaTeX math.
+3. **Universal Document & Media Uploader (RAG)**:
+   - Native OS share sheet and document picker to upload PDFs, Word docs, notes, audio, and images directly into `~/Documents/wola/knowledge/`.
+   - Real-time indexing progress and vector database inspection.
+   - Response citation inspector: tap in-chat sources to view original document chunks and similarity match scores.
+4. **Hardware Telemetry & Node Remote Control**:
+   - Live gauges for CPU load, RAM allocation, battery levels, and thermal conditions.
+   - Remote daemon management (Start, Stop, Restart) and live multiplexed log streams.
+   - Remote model store browser with one-tap Hugging Face GGUF downloads and runtime parameter sliders.
+
+### Phased Delivery Schedule
+- **Phase 1**: Connection protocol specification, mDNS broadcast daemon, and Ed25519 handshake.
+- **Phase 2**: Resumable SSE stream buffer, named Cloudflare tunnels, and `wola.pair` / `wola.peers` CLI tools.
+- **Phase 3**: Flutter project initialization, Cyber-Wolf Dark design system, and QR/mDNS pairing UI.
+- **Phase 4**: Flutter chat interface with SSE streaming and collapsible `<think>` blocks.
+- **Phase 5**: Knowledge base uploader, vector explorer, and telemetry dashboard in Flutter.
+- **Phase 6**: Remote model store, parameter tuner, and cross-platform releases (Android APK, Linux, Windows, macOS).
+

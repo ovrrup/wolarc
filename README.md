@@ -10,6 +10,7 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 > - [**System Architecture & Reference Manual (`DOCUMENTATION.md`)**](DOCUMENTATION.md) — Comprehensive architecture, RAG vector pipeline, offline hotspot/LAN connectivity, daemon lifecycles, and 1-to-1 command specifications.
 > - [**Installation & Complete User Guide (`GETTING_STARTED.md`)**](GETTING_STARTED.md) — Step-by-step installation on Termux & Linux, model downloads, RAG setup, remote client app pairing (Chatbox, Obsidian, NextChat), and troubleshooting.
 > - [**Complete Command Reference (`COMMANDS.md`)**](COMMANDS.md) — Exhaustive CLI reference, Technical/Casual command pairs, TUI shortcuts, configuration variables, and discrete system operations.
+> - [**Future Milestones & System Roadmap (`ROADMAP.md`)**](ROADMAP.md) — Strategic roadmap detailing resilient client-host connection methods and the official native Flutter cross-platform companion app.
 
 ---
 
@@ -222,6 +223,26 @@ Connect any OpenAI-compatible client (Chatbox, Obsidian, NextChat, OpenWebUI):
 
 ---
 
+## Future Milestones & System Roadmap 🗺️
+
+Wolarc is expanding into an interconnected local AI ecosystem. See [**ROADMAP.md**](ROADMAP.md) for full architecture specifications, protocols, and phased delivery plans:
+
+### 1. Reliable & Effective Client-Host Connection Fabric
+- **Zero-Config Local Auto-Discovery (mDNS / Zeroconf)**: Broadcasts `_wolarc._tcp.local` so clients discover Wolarc nodes instantly on Wi-Fi and hotspots without manual IP entry.
+- **Resilient Multi-Transport Fallback**: Automatic route switching across LAN Wi-Fi (<2ms), Tailscale WireGuard direct mesh P2P, persistent Cloudflare Named Tunnels, and WebRTC DataChannels (immune to CGNAT).
+- **Resumable Token Streaming**: In-memory event sequence buffer (`Last-Event-ID`) allowing clients to survive network transitions (e.g. Wi-Fi dropping to 5G) without losing tokens or aborting generation.
+- **Cryptographic Out-of-Band Pairing**: Dynamic QR code / PIN pairing with Ed25519 key exchange and scoped tokens (`chat`, `knowledge`, `admin`) via `wola.pair` / `wola.peers`.
+
+### 2. Official Native Flutter Cross-Platform App (`wola-flutter`)
+- **Cross-Platform Availability**: High-performance native app for Android (APK), iOS, Linux, Windows, and macOS.
+- **Next-Gen Chat & Reasoning UI**: SSE token streaming with expandable, styled `<think>` cognitive reasoning blocks, duration counters, token velocity speedometer (`⚡ tok/s`), and full markdown syntax highlighting.
+- **One-Tap Pairing Hub**: Built-in camera QR scanner, LAN node discovery, multi-node manager (switch between phone, desktop, and server nodes), and live latency indicator.
+- **Universal Knowledge Uploader & Inspector**: Pick documents and media directly from mobile storage to push to the node's vector indexer; browse document chunks and inspect retrieval match percentages.
+- **Hardware Telemetry & Node Remote Controls**: Real-time gauges for CPU, RAM, battery, thermal temperature, daemon lifecycle buttons (Start, Stop, Restart), remote model downloader, and hyperparameter tuning sliders.
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
