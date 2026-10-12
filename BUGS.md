@@ -126,6 +126,9 @@ All identified vulnerabilities have been patched with verified unit and operatio
 | **BUG-07** | MEDIUM | `bin/wola.chat` | Split-chunk `<think>` tags leaking and corrupting terminal ANSI formatting | **SOLVED** |
 | **BUG-08** | HIGH | `agent.py`, `indexer.py` | Thread collision on hardcoded `knowledge_db.json.tmp` filename | **SOLVED** |
 | **BUG-09** | MEDIUM | `bin/wola.url` | Direct invocation of `wola.ts` / `wola.tailscale` falling through to public URL | **SOLVED** |
+| **BUG-10** | HIGH | Entire Suite | System root pollution: 17+ loose scripts, logs, dotfiles and `__pycache__` in `$HOME` | **SOLVED** |
+| **BUG-11** | HIGH | `bin/wola.m`, `bin/wola.i` | Lack of granular model, document, and chat session deletion commands causing disk bloat | **SOLVED** |
+| **BUG-12** | MEDIUM | `bin/wola.log`, `bin/wola.purge` | Inability to truncate bloated logs or selectively purge caches/chats without full wipe | **SOLVED** |
 
 ---
 

@@ -1,7 +1,9 @@
 #!/data/data/com.termux/files/usr/bin/python3
 import os, sys, time, atexit
 
-LOG_FILE = os.path.expanduser("~/.wola_thinking.log")
+LOG_FILE = os.path.expanduser("~/.wola/logs/thinking.log")
+if not os.path.exists(LOG_FILE) and os.path.exists(os.path.expanduser("~/.wola_thinking.log")):
+    LOG_FILE = os.path.expanduser("~/.wola_thinking.log")
 
 C_RESET   = "\033[0m"
 C_BOLD    = "\033[1m"
@@ -31,6 +33,7 @@ def stream_thinking():
 
     if not os.path.exists(LOG_FILE):
         try:
+            os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
             open(LOG_FILE, "w").close()
         except Exception:
             pass

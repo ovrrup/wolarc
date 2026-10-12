@@ -48,14 +48,18 @@ fi
 if [ -d "/data/data/com.termux/files/usr/bin" ]; then
     IS_TERMUX=true
     TARGET_BIN="${PREFIX:-/data/data/com.termux/files/usr}/bin"
-    DEFAULT_KNOWLEDGE="$HOME/storage/shared/Documents/agent_knowledge"
-    DEFAULT_CHATS="$HOME/storage/shared/Documents/agent_chats"
+    DEFAULT_KNOWLEDGE="$HOME/storage/shared/Documents/wola/knowledge"
+    DEFAULT_CHATS="$HOME/storage/shared/Documents/wola/chats"
+    [ -d "$HOME/storage/shared/Documents/agent_knowledge" ] && DEFAULT_KNOWLEDGE="$HOME/storage/shared/Documents/agent_knowledge"
+    [ -d "$HOME/storage/shared/Documents/agent_chats" ] && DEFAULT_CHATS="$HOME/storage/shared/Documents/agent_chats"
 else
     IS_TERMUX=false
     TARGET_BIN="${HOME}/.local/bin"
     [ -w "/usr/local/bin" ] && TARGET_BIN="/usr/local/bin"
-    DEFAULT_KNOWLEDGE="$HOME/Documents/agent_knowledge"
-    DEFAULT_CHATS="$HOME/Documents/agent_chats"
+    DEFAULT_KNOWLEDGE="$HOME/Documents/wola/knowledge"
+    DEFAULT_CHATS="$HOME/Documents/wola/chats"
+    [ -d "$HOME/Documents/agent_knowledge" ] && DEFAULT_KNOWLEDGE="$HOME/Documents/agent_knowledge"
+    [ -d "$HOME/Documents/agent_chats" ] && DEFAULT_CHATS="$HOME/Documents/agent_chats"
 fi
 
 MODE="interactive"
@@ -730,10 +734,20 @@ deploy_binaries() {
 
     mkdir -p "$TARGET_BIN"
 
-    # Deploy python background scripts
-    cp "$DIR/agent.py" "$HOME/agent.py"
-    [ -f "$DIR/indexer.py" ] && cp "$DIR/indexer.py" "$HOME/indexer.py"
-    [ -f "$DIR/web_ui.py" ] && cp "$DIR/web_ui.py" "$HOME/web_ui.py"
+    # Deploy python background scripts into isolated ~/.wola/lib
+    local wola_lib="$HOME/.wola/lib"
+    local wola_logs="$HOME/.wola/logs"
+    local wola_run="$HOME/.wola/run"
+    local wola_data="$HOME/.wola/data"
+    mkdir -p "$wola_lib" "$wola_logs" "$wola_run" "$wola_data"
+
+    cp "$DIR/agent.py" "$wola_lib/agent.py"
+    [ -f "$DIR/indexer.py" ] && cp "$DIR/indexer.py" "$wola_lib/indexer.py"
+    [ -f "$DIR/web_ui.py" ] && cp "$DIR/web_ui.py" "$wola_lib/web_ui.py"
+
+    # Clean loose scripts and bytecode from $HOME
+    rm -f "$HOME/agent.py" "$HOME/indexer.py" "$HOME/web_ui.py" 2>/dev/null || true
+    rm -rf "$HOME/__pycache__" 2>/dev/null || true
 
     # Deploy all commands in bin/
     for f in "$DIR/bin"/*; do

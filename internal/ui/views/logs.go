@@ -35,16 +35,28 @@ type LogsModel struct {
 	Height       int
 }
 
+func resolveLogPath(homeDir, name, legacyName string) string {
+	p := filepath.Join(homeDir, ".wola", "logs", name)
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	legacy := filepath.Join(homeDir, legacyName)
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return p
+}
+
 func NewLogsModel(cfg *config.Config) LogsModel {
 	homeDir, _ := os.UserHomeDir()
 
 	streams := []LogStream{
-		{Name: "Chat LLM", Filename: filepath.Join(homeDir, "chat.log"), Shortcut: "1", Color: styles.ColorPrimary},
-		{Name: "Embed LLM", Filename: filepath.Join(homeDir, "embed.log"), Shortcut: "2", Color: styles.ColorSuccess},
-		{Name: "Agent API", Filename: filepath.Join(homeDir, "agent.log"), Shortcut: "3", Color: styles.ColorAccent},
-		{Name: "SSH Tunnel", Filename: filepath.Join(homeDir, "tunnel.log"), Shortcut: "4", Color: styles.ColorWarning},
-		{Name: "Indexer", Filename: filepath.Join(homeDir, "indexer.log"), Shortcut: "5", Color: styles.ColorPrimary},
-		{Name: "Thinking", Filename: filepath.Join(homeDir, ".wola_thinking.log"), Shortcut: "6", Color: styles.ColorDim},
+		{Name: "Chat LLM", Filename: resolveLogPath(homeDir, "chat.log", "chat.log"), Shortcut: "1", Color: styles.ColorPrimary},
+		{Name: "Embed LLM", Filename: resolveLogPath(homeDir, "embed.log", "embed.log"), Shortcut: "2", Color: styles.ColorSuccess},
+		{Name: "Agent API", Filename: resolveLogPath(homeDir, "agent.log", "agent.log"), Shortcut: "3", Color: styles.ColorAccent},
+		{Name: "SSH Tunnel", Filename: resolveLogPath(homeDir, "tunnel.log", "tunnel.log"), Shortcut: "4", Color: styles.ColorWarning},
+		{Name: "Indexer", Filename: resolveLogPath(homeDir, "indexer.log", "indexer.log"), Shortcut: "5", Color: styles.ColorPrimary},
+		{Name: "Thinking", Filename: resolveLogPath(homeDir, "thinking.log", ".wola_thinking.log"), Shortcut: "6", Color: styles.ColorDim},
 	}
 
 	ti := textinput.New()

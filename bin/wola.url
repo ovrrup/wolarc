@@ -15,10 +15,14 @@ C_CYAN="\033[1;36m"
 C_MAGENTA="\033[1;35m"
 C_BLUE="\033[1;34m"
 
-URL_FILE="$HOME/.wola_url"
-PROVIDER_FILE="$HOME/.wola_provider"
-ENDPOINT_FILE="$HOME/.wola_endpoint"
-PID_FILE="$HOME/.wola_tunnel_daemon.pid"
+URL_FILE="$HOME/.wola/run/wola_url"
+[ -f "$HOME/.wola_url" ] && [ ! -f "$URL_FILE" ] && URL_FILE="$HOME/.wola_url"
+PROVIDER_FILE="$HOME/.wola/run/wola_provider"
+[ -f "$HOME/.wola_provider" ] && [ ! -f "$PROVIDER_FILE" ] && PROVIDER_FILE="$HOME/.wola_provider"
+ENDPOINT_FILE="$HOME/.wola/run/wola_endpoint"
+[ -f "$HOME/.wola_endpoint" ] && [ ! -f "$ENDPOINT_FILE" ] && ENDPOINT_FILE="$HOME/.wola_endpoint"
+PID_FILE="$HOME/.wola/run/wola_tunnel_daemon.pid"
+[ -f "$HOME/.wola_tunnel_daemon.pid" ] && [ ! -f "$PID_FILE" ] && PID_FILE="$HOME/.wola_tunnel_daemon.pid"
 CONFIG="$HOME/.wolarc"
 [ -f "$CONFIG" ] && source "$CONFIG"
 
@@ -30,6 +34,8 @@ PORT="${AGENT_PORT:-5000}"
 get_url() {
     if [ -f "$URL_FILE" ]; then
         cat "$URL_FILE" | tr -d ' \n\r'
+    elif [ -f "$HOME/.wola/logs/tunnel.log" ]; then
+        grep -oE "https://[a-zA-Z0-9.-]+(?:\.trycloudflare\.com|\.lhr\.life|\.serveo\.net|\.pinggy\.link|\.free\.pinggy\.link)" "$HOME/.wola/logs/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1
     elif [ -f "$HOME/tunnel.log" ]; then
         grep -oE "https://[a-zA-Z0-9.-]+(?:\.trycloudflare\.com|\.lhr\.life|\.serveo\.net|\.pinggy\.link|\.free\.pinggy\.link)" "$HOME/tunnel.log" 2>/dev/null | grep -v "admin" | tail -n 1
     fi

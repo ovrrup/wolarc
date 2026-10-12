@@ -130,21 +130,36 @@ def get_model_name(port):
     return "Offline / Inactive"
 
 def get_tunnel_url():
-    tunnel_log = os.path.expanduser("~/tunnel.log")
-    if os.path.exists(tunnel_log):
+    url_file = os.path.expanduser("~/.wola/run/wola_url")
+    if not os.path.exists(url_file):
+        url_file = os.path.expanduser("~/.wola_url")
+    if os.path.exists(url_file):
         try:
-            with open(tunnel_log, "r") as f:
-                content = f.read()
-            urls = re.findall(r"https://[a-zA-Z0-9.-]+(?:\.lhr\.life|\.serveo\.net|\.localhost\.run)", content)
-            if urls:
-                return urls[-1]
+            with open(url_file, "r") as f:
+                u = f.read().strip()
+                if u.startswith("http"):
+                    return u
         except Exception:
             pass
+
+    for log_path in [os.path.expanduser("~/.wola/logs/tunnel.log"), os.path.expanduser("~/tunnel.log")]:
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r") as f:
+                    content = f.read()
+                urls = re.findall(r"https://[a-zA-Z0-9.-]+(?:\.trycloudflare\.com|\.lhr\.life|\.serveo\.net|\.pinggy\.link|\.free\.pinggy\.link)", content)
+                clean_urls = [u for u in urls if "admin" not in u]
+                if clean_urls:
+                    return clean_urls[-1]
+            except Exception:
+                pass
     return "No active tunnel detected"
 
 _CACHE_DB = {"mtime": 0, "val": (0, 0, "No database file")}
 def get_embedding_stats():
-    db_file = os.path.expanduser("~/knowledge_db.json")
+    db_file = os.path.expanduser("~/.wola/data/knowledge_db.json")
+    if not os.path.exists(db_file):
+        db_file = os.path.expanduser("~/knowledge_db.json")
     if not os.path.exists(db_file):
         return 0, 0, "No database file"
     try:
@@ -163,7 +178,9 @@ def get_embedding_stats():
         return 0, 0, f"Error: {e}"
 
 def get_metrics():
-    metrics_file = os.path.expanduser("~/.wola_metrics.json")
+    metrics_file = os.path.expanduser("~/.wola/run/wola_metrics.json")
+    if not os.path.exists(metrics_file):
+        metrics_file = os.path.expanduser("~/.wola_metrics.json")
     if os.path.exists(metrics_file):
         try:
             with open(metrics_file, "r") as f:
@@ -181,7 +198,9 @@ def get_metrics():
     }
 
 def get_last_indexer_log():
-    log_file = os.path.expanduser("~/indexer.log")
+    log_file = os.path.expanduser("~/.wola/logs/indexer.log")
+    if not os.path.exists(log_file):
+        log_file = os.path.expanduser("~/indexer.log")
     if os.path.exists(log_file):
         try:
             with open(log_file, "r") as f:
@@ -193,7 +212,9 @@ def get_last_indexer_log():
     return "Idle • Monitoring notes"
 
 def get_update_status():
-    cache_file = os.path.expanduser("~/.wola_update_cache.json")
+    cache_file = os.path.expanduser("~/.wola/run/wola_update_cache.json")
+    if not os.path.exists(cache_file):
+        cache_file = os.path.expanduser("~/.wola_update_cache.json")
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "r") as f:
@@ -210,8 +231,14 @@ def make_bar(percent, width=12, fill_char="█", empty_char="░"):
     empty_len = width - fill_len
     return f"{fill_char * fill_len}{empty_char * empty_len}"
 
+def get_node_lock():
+    lf = os.path.expanduser("~/.wola/run/wola.lock")
+    if os.path.exists(lf):
+        return lf
+    return os.path.expanduser("~/.wola.lock")
+
 def get_uptime_str():
-    lock_file = os.path.expanduser("~/.wola.lock")
+    lock_file = get_node_lock()
     if os.path.exists(lock_file):
         try:
             mtime = os.path.getmtime(lock_file)
@@ -226,7 +253,7 @@ def get_uptime_str():
     return "Inactive"
 
 def render():
-    lock_file = os.path.expanduser("~/.wola.lock")
+    lock_file = get_node_lock()
     is_on = os.path.exists(lock_file)
 
     chat_model = get_model_name(8080)
@@ -355,7 +382,7 @@ def main():
                         continue
                     elif ch == 's':
                         cleanup()
-                        lock_file = os.path.expanduser("~/.wola.lock")
+                        lock_file = get_node_lock()
                         if os.path.exists(lock_file):
                             os.system("wola.k")
                         else:

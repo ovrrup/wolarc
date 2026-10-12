@@ -369,6 +369,14 @@ wola.m
 
 # Quick CLI import from custom path
 wola.m import /path/to/my-custom-model.gguf
+
+# Delete a model interactively (shows numbered list with sizes & active tags)
+wola.m rm
+
+# Delete a model directly by filename
+wola.m rm qwen2.5-1.5b-instruct-q4_k_m.gguf
+# or
+wola.m delete my-model.gguf -y
 ```
 
 ---
@@ -383,15 +391,26 @@ CLI tool to manage and test the vector knowledge database.
 wola.i status
 
 # Index a single document or an entire directory immediately
-wola.i add ~/storage/shared/Documents/my_notes.md
+wola.i add ~/storage/shared/Documents/wola/knowledge/my_notes.md
 wola.i add /path/to/folder/
+
+# Delete a knowledge document and atomically purge its vectors from DB
+wola.i rm my_notes.md
+# or interactively select:
+wola.i rm
+
+# Delete a specific saved chat history and strip its dialogue vectors
+wola.i rm-chat session_20261012_180000
+
+# Clear all saved chat sessions and remove all conversation vectors
+wola.i clear-chats
 
 # Test vector retrieval directly with a search query
 wola.i search "How do I configure network settings?"
 ```
 
 #### Automatic Universal Indexing Daemon (`indexer.py`):
-Runs in the background watching both `KNOWLEDGE_DIR` (default: `~/storage/shared/Documents/agent_knowledge`) and `CHATS_DIR` (default: `~/storage/shared/Documents/agent_chats`). When files or dialogues are created, edited, or removed, the indexer automatically extracts semantic content, chunks it, generates vector embeddings via port `8081`, and atomically saves them to `~/knowledge_db.json`.
+Runs in the background watching both `KNOWLEDGE_DIR` (default: `~/storage/shared/Documents/wola/knowledge` or `agent_knowledge`) and `CHATS_DIR` (default: `~/storage/shared/Documents/wola/chats` or `agent_chats`). When files or dialogues are created, edited, or removed, the indexer automatically extracts semantic content, chunks it, generates vector embeddings via port `8081`, and atomically saves them to `~/.wola/data/knowledge_db.json`.
 
 **Supported File Formats (Zero Limitations):**
 - **Documents & E-Books**: `.pdf`, `.docx`, `.epub`, `.rtf`, `.odt`, `.md`, `.txt`, `.html`, `.tex`, `.org`
@@ -491,6 +510,9 @@ wola.log tunnel
 
 # Stream thinking reasoning stream log only
 wola.log think
+
+# Clear and truncate all log files to 0 bytes
+wola.log clear
 ```
 
 ---
@@ -505,7 +527,7 @@ Checks for updates from GitHub and upgrades the local installation.
 wola.u
 ```
 
-- Compares local Git commit hash (`~/.wola_version`) against remote repository HEAD.
+- Compares local Git commit hash (`~/.wola/run/wola_version`) against remote repository HEAD.
 - Automatically preserves custom user paths and settings in `~/.wolarc`.
 - Refreshes command executables and symlinks in `$PREFIX/bin` or `~/.local/bin`.
 - Reconciles Python dependencies.
@@ -535,7 +557,7 @@ The system deletion and cleanup engine.
 
 > **Command Pair**: `wola.uninstall` (Casual) <-> `wola.purge` (Technical). Subcommands: `wola uninstall` / `wola purge`.
 
-This command stops all running processes, removes lock files, and erases files and directories associated with Wolarc. It provides **3 distinct hardness levels** to control how thoroughly data is removed.
+This command stops all running processes, removes lock files, and erases files and directories associated with Wolarc. It provides **3 distinct hardness levels** alongside **granular targeted purge options**.
 
 ```bash
 # Syntax
@@ -544,10 +566,31 @@ wola.uninstall [OPTIONS] [LEVEL]
 wola.purge [OPTIONS] [LEVEL]
 ```
 
+### Granular Purge Flags
+
+Target specific parts of the system without affecting the rest:
+
+```bash
+# Truncate / delete all logs
+wola.purge --logs
+
+# Remove caches, telemetry, and python bytecode
+wola.purge --cache
+
+# Delete saved chat histories and dialogue vectors
+wola.purge --chats
+
+# Delete vector database (knowledge_db.json)
+wola.purge --db
+
+# Delete all GGUF models in models directory
+wola.purge --models
+```
+
 ### Hardness Levels
 
 ```
-Level 1 (Soft)       ──> Deletes binaries, configs, locks, and logs.
+Level 1 (Soft)       ──> Deletes binaries, configs, locks, daemons and logs.
                          PRESERVES: Models, Vector DB, Knowledge notes.
 
 Level 2 (Medium)     ──> Level 1 + Deletes Models & Vector DB.
@@ -563,15 +606,15 @@ Level 3 (Hard)       ──> Complete Self-Destruction.
 - **Actions Performed**:
   1. Stops all running processes (`llama-server`, `agent.py`, `indexer.py`, SSH tunnels, `wola-tui`).
   2. Releases Android wake-lock (`termux-wake-unlock`).
-  3. Deletes runtime state and lock files (`~/.wola.lock`, `~/.wola_url`, `~/.wola_endpoint`, `~/.wola_provider`, `~/.wola_metrics.json`, `~/.wola_update_cache.json`, `~/.wola_bench_cache.json`, `~/.wola_version`, `~/.wola_thinking.log`).
-  4. Deletes log files (`~/chat.log`, `~/embed.log`, `~/agent.log`, `~/tunnel.log`, `~/indexer.log`, `~/llama_chat.log`, `~/llama_embed.log`).
-  5. Removes deployed server scripts in `$HOME` (`~/agent.py`, `~/indexer.py`).
+  3. Deletes runtime state and lock files (`~/.wola/run`, `.wola.lock`, `.wola_url`, `.wola_metrics.json`, etc.).
+  4. Deletes log files (`~/.wola/logs`, `chat.log`, `embed.log`, `agent.log`, `tunnel.log`, `indexer.log`).
+  5. Removes deployed daemon scripts (`~/.wola/lib`) and Python cache (`__pycache__`).
   6. Removes configuration file `~/.wolarc` and its backups.
   7. Deletes all installed executables and symlinks in `$TARGET_BIN` (`wolarc`, `wola.r`, `wola.k`, `wola.rs`, `wola.d`, `wola.url`, `wola.chat`, `wola.bench`, `wola.log`, `wola.th`, `wola.gt`, `wola.gh`, `wola.t`, `wola.m`, `wola.i`, `wola.u`, `wola-h`, `wola-tui`).
 - **PRESERVED**:
   - `~/models` (downloaded GGUF models are kept intact)
-  - `~/knowledge_db.json` (vector database is kept intact)
-  - Knowledge notes directory (`agent_knowledge` documents are kept intact)
+  - `~/.wola/data/knowledge_db.json` (vector database is kept intact)
+  - Knowledge notes directory (user documents are kept intact)
 
 ```bash
 # Execute Level 1 Cleanup

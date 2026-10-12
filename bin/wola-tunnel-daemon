@@ -8,12 +8,14 @@
 CONFIG="$HOME/.wolarc"
 [ -f "$CONFIG" ] && source "$CONFIG"
 
-URL_FILE="$HOME/.wola_url"
-PROVIDER_FILE="$HOME/.wola_provider"
-ENDPOINT_FILE="$HOME/.wola_endpoint"
-LOG_FILE="$HOME/tunnel.log"
-PID_FILE="$HOME/.wola_tunnel_daemon.pid"
-LOCK_FILE="$HOME/.wola.lock"
+URL_FILE="$HOME/.wola/run/wola_url"
+PROVIDER_FILE="$HOME/.wola/run/wola_provider"
+ENDPOINT_FILE="$HOME/.wola/run/wola_endpoint"
+LOG_FILE="$HOME/.wola/logs/tunnel.log"
+PID_FILE="$HOME/.wola/run/wola_tunnel_daemon.pid"
+LOCK_FILE="$HOME/.wola/run/wola.lock"
+RUN_DIR="$HOME/.wola/run"
+mkdir -p "$RUN_DIR" "$HOME/.wola/logs" 2>/dev/null
 
 PORT="${AGENT_PORT:-5000}"
 PREF_PROVIDER="${TUNNEL_PROVIDER:-auto}"
@@ -53,7 +55,7 @@ start_single_tunnel() {
     kill_tunnel_processes
     sleep 1
 
-    local tmp_log="$HOME/.wola_tunnel_tmp.log"
+    local tmp_log="$RUN_DIR/wola_tunnel_tmp.log"
     rm -f "$tmp_log"
 
     case "$prov" in
@@ -165,7 +167,7 @@ reconnect_cascade() {
     done
 
     log_msg "All tunnel providers exhausted without success."
-    rm -f "$URL_FILE" "$ENDPOINT_FILE"
+    rm -f "$URL_FILE" "$ENDPOINT_FILE" "$HOME/.wola_url" "$HOME/.wola_endpoint"
     echo "offline" > "$PROVIDER_FILE"
     return 1
 }
@@ -193,10 +195,10 @@ watchdog_worker() {
 
     while true; do
         # Exit if node lock is gone
-        if [ ! -f "$LOCK_FILE" ]; then
-            log_msg "Wola node lock removed (~/.wola.lock). Exiting watchdog cleanly."
+        if [ ! -f "$LOCK_FILE" ] && [ ! -f "$HOME/.wola.lock" ]; then
+            log_msg "Wola node lock removed. Exiting watchdog cleanly."
             kill_tunnel_processes
-            rm -f "$PID_FILE"
+            rm -f "$PID_FILE" "$HOME/.wola_tunnel_daemon.pid"
             exit 0
         fi
 
@@ -207,11 +209,19 @@ watchdog_worker() {
         fi
 
         local cur_url=""
-        [ -f "$URL_FILE" ] && cur_url=$(cat "$URL_FILE" | tr -d ' \n\r')
+        if [ -f "$URL_FILE" ]; then
+            cur_url=$(cat "$URL_FILE" | tr -d ' \n\r')
+        elif [ -f "$HOME/.wola_url" ]; then
+            cur_url=$(cat "$HOME/.wola_url" | tr -d ' \n\r')
+        fi
 
         # Check process existence
         local cur_prov="localhost.run"
-        [ -f "$PROVIDER_FILE" ] && cur_prov=$(cat "$PROVIDER_FILE" | tr -d ' \n\r')
+        if [ -f "$PROVIDER_FILE" ]; then
+            cur_prov=$(cat "$PROVIDER_FILE" | tr -d ' \n\r')
+        elif [ -f "$HOME/.wola_provider" ]; then
+            cur_prov=$(cat "$HOME/.wola_provider" | tr -d ' \n\r')
+        fi
 
         # If currently marked offline or URL missing
         if [ "$cur_prov" = "offline" ] || [ -z "$cur_url" ]; then
@@ -259,7 +269,7 @@ watchdog_worker() {
             if ! is_internet_available; then
                 log_msg "Tunnel down and Internet is unreachable. Setting provider to offline."
                 echo "offline" > "$PROVIDER_FILE"
-                rm -f "$URL_FILE" "$ENDPOINT_FILE"
+                rm -f "$URL_FILE" "$ENDPOINT_FILE" "$HOME/.wola_url" "$HOME/.wola_endpoint"
                 kill_tunnel_processes
                 was_offline=true
                 offline_backoff=30
@@ -278,13 +288,18 @@ watchdog_worker() {
 case "$1" in
     "start")
         # Ensure only one watchdog instance
-        if [ -f "$PID_FILE" ]; then
-            old_pid=$(cat "$PID_FILE" 2>/dev/null)
-            if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
-                # Already running
-                [ -f "$URL_FILE" ] && cat "$URL_FILE"
-                exit 0
+        local active_pid=""
+        [ -f "$PID_FILE" ] && active_pid=$(cat "$PID_FILE" 2>/dev/null)
+        [ -z "$active_pid" ] && [ -f "$HOME/.wola_tunnel_daemon.pid" ] && active_pid=$(cat "$HOME/.wola_tunnel_daemon.pid" 2>/dev/null)
+
+        if [ -n "$active_pid" ] && kill -0 "$active_pid" 2>/dev/null; then
+            # Already running
+            if [ -f "$URL_FILE" ]; then
+                cat "$URL_FILE"
+            elif [ -f "$HOME/.wola_url" ]; then
+                cat "$HOME/.wola_url"
             fi
+            exit 0
         fi
 
         new_url=$(reconnect_cascade "$PREF_PROVIDER")
@@ -309,15 +324,18 @@ case "$1" in
         ;;
 
     "stop")
-        if [ -f "$PID_FILE" ]; then
-            w_pid=$(cat "$PID_FILE" 2>/dev/null)
-            if [ -n "$w_pid" ]; then
-                kill -9 "$w_pid" 2>/dev/null || true
+        for pf in "$PID_FILE" "$HOME/.wola_tunnel_daemon.pid"; do
+            if [ -f "$pf" ]; then
+                w_pid=$(cat "$pf" 2>/dev/null)
+                if [ -n "$w_pid" ]; then
+                    kill -9 "$w_pid" 2>/dev/null || true
+                fi
+                rm -f "$pf"
             fi
-            rm -f "$PID_FILE"
-        fi
+        done
         kill_tunnel_processes
-        rm -f "$URL_FILE" "$ENDPOINT_FILE" "$PROVIDER_FILE"
+        rm -f "$URL_FILE" "$ENDPOINT_FILE" "$PROVIDER_FILE" \
+              "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider"
         log_msg "Tunnel watchdog and forwarders stopped."
         exit 0
         ;;
@@ -329,11 +347,11 @@ case "$1" in
         reconnect_cascade "$target"
         # Ensure watchdog worker is running
         need_spawn=true
-        if [ -f "$PID_FILE" ]; then
-            w_pid=$(cat "$PID_FILE" 2>/dev/null)
-            if [ -n "$w_pid" ] && kill -0 "$w_pid" 2>/dev/null; then
-                need_spawn=false
-            fi
+        local chk_pid=""
+        [ -f "$PID_FILE" ] && chk_pid=$(cat "$PID_FILE" 2>/dev/null)
+        [ -z "$chk_pid" ] && [ -f "$HOME/.wola_tunnel_daemon.pid" ] && chk_pid=$(cat "$HOME/.wola_tunnel_daemon.pid" 2>/dev/null)
+        if [ -n "$chk_pid" ] && kill -0 "$chk_pid" 2>/dev/null; then
+            need_spawn=false
         fi
         if [ "$need_spawn" = true ]; then
             if command -v setsid >/dev/null 2>&1; then
@@ -349,10 +367,13 @@ case "$1" in
         echo "=================================================="
         echo "         WOLA TUNNEL WATCHDOG STATUS"
         echo "=================================================="
-        if [ -f "$PID_FILE" ]; then
-            w_pid=$(cat "$PID_FILE" 2>/dev/null)
-            if [ -n "$w_pid" ] && kill -0 "$w_pid" 2>/dev/null; then
-                echo "  Watchdog Daemon : RUNNING (PID $w_pid)"
+        local cur_pid=""
+        [ -f "$PID_FILE" ] && cur_pid=$(cat "$PID_FILE" 2>/dev/null)
+        [ -z "$cur_pid" ] && [ -f "$HOME/.wola_tunnel_daemon.pid" ] && cur_pid=$(cat "$HOME/.wola_tunnel_daemon.pid" 2>/dev/null)
+
+        if [ -n "$cur_pid" ]; then
+            if kill -0 "$cur_pid" 2>/dev/null; then
+                echo "  Watchdog Daemon : RUNNING (PID $cur_pid)"
             else
                 echo "  Watchdog Daemon : STOPPED (stale PID)"
             fi
@@ -360,12 +381,25 @@ case "$1" in
             echo "  Watchdog Daemon : STOPPED"
         fi
 
+        local stat_url=""
+        local stat_prov=""
+        local stat_end=""
         if [ -f "$URL_FILE" ]; then
-            echo "  Active URL      : $(cat "$URL_FILE")"
-            echo "  Provider        : $(cat "$PROVIDER_FILE" 2>/dev/null || echo 'Unknown')"
-            echo "  Endpoint        : $(cat "$ENDPOINT_FILE" 2>/dev/null || echo 'Unknown')"
+            stat_url=$(cat "$URL_FILE" 2>/dev/null)
+            stat_prov=$(cat "$PROVIDER_FILE" 2>/dev/null)
+            stat_end=$(cat "$ENDPOINT_FILE" 2>/dev/null)
+        elif [ -f "$HOME/.wola_url" ]; then
+            stat_url=$(cat "$HOME/.wola_url" 2>/dev/null)
+            stat_prov=$(cat "$HOME/.wola_provider" 2>/dev/null)
+            stat_end=$(cat "$HOME/.wola_endpoint" 2>/dev/null)
+        fi
+
+        if [ -n "$stat_url" ]; then
+            echo "  Active URL      : $stat_url"
+            echo "  Provider        : ${stat_prov:-Unknown}"
+            echo "  Endpoint        : ${stat_end:-Unknown}"
             echo -n "  Latency Health  : "
-            if test_tunnel_health "$(cat "$URL_FILE")"; then
+            if test_tunnel_health "$stat_url"; then
                 echo "HEALTHY (200 OK)"
             else
                 echo "UNREACHABLE / DEGRADED"

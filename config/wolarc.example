@@ -1,10 +1,10 @@
 # Paths & Binaries
 LLAMA_BIN="llama-server"
 MODELS_DIR="$HOME/models"
-KNOWLEDGE_DIR="$HOME/storage/shared/Documents/agent_knowledge"
-CHATS_DIR="$HOME/storage/shared/Documents/agent_chats"
-DB_FILE="$HOME/knowledge_db.json"
-METRICS_FILE="$HOME/.wola_metrics.json"
+KNOWLEDGE_DIR="$HOME/storage/shared/Documents/wola/knowledge"
+CHATS_DIR="$HOME/storage/shared/Documents/wola/chats"
+DB_FILE="$HOME/.wola/data/knowledge_db.json"
+METRICS_FILE="$HOME/.wola/run/wola_metrics.json"
 
 # Active Models
 CHAT_MODEL=""

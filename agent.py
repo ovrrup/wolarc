@@ -32,7 +32,9 @@ def add_cors_headers(response):
     return response
 
 CONFIG_PATH = os.path.expanduser("~/.wolarc")
-THINKING_LOG = os.path.expanduser("~/.wola_thinking.log")
+THINKING_LOG = os.path.expanduser("~/.wola/logs/thinking.log")
+if not os.path.exists(THINKING_LOG) and os.path.exists(os.path.expanduser("~/.wola_thinking.log")):
+    THINKING_LOG = os.path.expanduser("~/.wola_thinking.log")
 
 _THINK_LOCK = threading.Lock()
 _THINK_BUFFER = []
@@ -110,16 +112,36 @@ def get_or_create_session_id(provided_id=None):
 
 def load_cfg():
     default_doc_dir = os.path.expanduser("~/storage/shared/Documents") if os.path.exists(os.path.expanduser("~/storage/shared/Documents")) else os.path.expanduser("~/Documents")
+    wola_docs = os.path.join(default_doc_dir, "wola")
+
+    data_dir = os.path.expanduser("~/.wola/data")
+    run_dir = os.path.expanduser("~/.wola/run")
+    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(run_dir, exist_ok=True)
+
+    default_db = os.path.join(data_dir, "knowledge_db.json")
+    if not os.path.exists(default_db) and os.path.exists(os.path.expanduser("~/knowledge_db.json")):
+        default_db = os.path.expanduser("~/knowledge_db.json")
+
+    default_metrics = os.path.join(run_dir, "wola_metrics.json")
+    if not os.path.exists(default_metrics) and os.path.exists(os.path.expanduser("~/.wola_metrics.json")):
+        default_metrics = os.path.expanduser("~/.wola_metrics.json")
+
+    legacy_k = os.path.join(default_doc_dir, "agent_knowledge")
+    legacy_c = os.path.join(default_doc_dir, "agent_chats")
+    default_k = legacy_k if os.path.exists(legacy_k) else os.path.join(wola_docs, "knowledge")
+    default_c = legacy_c if os.path.exists(legacy_c) else os.path.join(wola_docs, "chats")
+
     cfg = {
         "EMBED_PORT": "8081",
         "CHAT_PORT": "8080",
         "AGENT_PORT": "5000",
         "CHAT_MODEL": "chat-model",
         "EMBED_MODEL": "embed-model",
-        "KNOWLEDGE_DIR": os.path.join(default_doc_dir, "agent_knowledge"),
-        "CHATS_DIR": os.path.join(default_doc_dir, "agent_chats"),
-        "DB_FILE": os.path.expanduser("~/knowledge_db.json"),
-        "METRICS_FILE": os.path.expanduser("~/.wola_metrics.json"),
+        "KNOWLEDGE_DIR": default_k,
+        "CHATS_DIR": default_c,
+        "DB_FILE": default_db,
+        "METRICS_FILE": default_metrics,
         "TEMPERATURE": 0.6,
         "SIMILARITY_THRESHOLD": 0.50,
         "TOP_K": 2,
@@ -166,6 +188,7 @@ def flush_think_tokens_locked():
     _THINK_BUFFER = []
     _LAST_FLUSH = time.time()
     try:
+        os.makedirs(os.path.dirname(THINKING_LOG), exist_ok=True)
         with open(THINKING_LOG, "a", encoding="utf-8") as f:
             f.write(text)
     except Exception:
@@ -174,6 +197,7 @@ def flush_think_tokens_locked():
 def log_think_event(tag, content):
     flush_think_tokens()
     try:
+        os.makedirs(os.path.dirname(THINKING_LOG), exist_ok=True)
         with open(THINKING_LOG, "a", encoding="utf-8") as f:
             f.write(f"[{tag}] {content}\n")
     except Exception:

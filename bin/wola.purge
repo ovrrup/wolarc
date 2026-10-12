@@ -18,19 +18,33 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 if [ -d "/data/data/com.termux/files/usr/bin" ]; then
     IS_TERMUX=true
     TARGET_BIN="${PREFIX:-/data/data/com.termux/files/usr}/bin"
-    DEFAULT_KNOWLEDGE="$HOME/storage/shared/Documents/agent_knowledge"
+    DEFAULT_KNOWLEDGE="$HOME/storage/shared/Documents/wola/knowledge"
+    DEFAULT_CHATS="$HOME/storage/shared/Documents/wola/chats"
+    [ -d "$HOME/storage/shared/Documents/agent_knowledge" ] && DEFAULT_KNOWLEDGE="$HOME/storage/shared/Documents/agent_knowledge"
+    [ -d "$HOME/storage/shared/Documents/agent_chats" ] && DEFAULT_CHATS="$HOME/storage/shared/Documents/agent_chats"
 else
     IS_TERMUX=false
     TARGET_BIN="${HOME}/.local/bin"
     [ -w "/usr/local/bin" ] && TARGET_BIN="/usr/local/bin"
-    DEFAULT_KNOWLEDGE="$HOME/Documents/agent_knowledge"
+    DEFAULT_KNOWLEDGE="$HOME/Documents/wola/knowledge"
+    DEFAULT_CHATS="$HOME/Documents/wola/chats"
+    [ -d "$HOME/Documents/agent_knowledge" ] && DEFAULT_KNOWLEDGE="$HOME/Documents/agent_knowledge"
+    [ -d "$HOME/Documents/agent_chats" ] && DEFAULT_CHATS="$HOME/Documents/agent_chats"
 fi
 
-# Load existing configuration if present to retrieve configured custom paths
 CONFIG="$HOME/.wolarc"
 MODELS_DIR="$HOME/models"
 KNOWLEDGE_DIR="$DEFAULT_KNOWLEDGE"
+CHATS_DIR="$DEFAULT_CHATS"
 WOLA_SOURCE_DIR="$REPO_DIR"
+
+WOLA_DIR="$HOME/.wola"
+LIB_DIR="$WOLA_DIR/lib"
+LOG_DIR="$WOLA_DIR/logs"
+RUN_DIR="$WOLA_DIR/run"
+DATA_DIR="$WOLA_DIR/data"
+DB_FILE="$DATA_DIR/knowledge_db.json"
+[ ! -f "$DB_FILE" ] && [ -f "$HOME/knowledge_db.json" ] && DB_FILE="$HOME/knowledge_db.json"
 
 if [ -f "$CONFIG" ]; then
     cfg_models=$(grep -E '^\s*MODELS_DIR=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
@@ -38,6 +52,12 @@ if [ -f "$CONFIG" ]; then
 
     cfg_knowledge=$(grep -E '^\s*KNOWLEDGE_DIR=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
     [ -n "$cfg_knowledge" ] && KNOWLEDGE_DIR=$(eval echo "$cfg_knowledge")
+
+    cfg_chats=$(grep -E '^\s*CHATS_DIR=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
+    [ -n "$cfg_chats" ] && CHATS_DIR=$(eval echo "$cfg_chats")
+
+    cfg_db=$(grep -E '^\s*DB_FILE=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
+    [ -n "$cfg_db" ] && DB_FILE=$(eval echo "$cfg_db")
 
     cfg_source=$(grep -E '^\s*WOLA_SOURCE_DIR=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
     [ -n "$cfg_source" ] && WOLA_SOURCE_DIR=$(eval echo "$cfg_source")
@@ -47,24 +67,38 @@ LEVEL=""
 FORCE=false
 PURGE_REPO=false
 
+# Granular purge triggers
+GRANULAR_LOGS=false
+GRANULAR_CACHE=false
+GRANULAR_CHATS=false
+GRANULAR_DB=false
+GRANULAR_MODELS=false
+
 show_help() {
-    echo -e "${C_BOLD}Wola AI Node - Cleanup & Self-Destruct Purge Utility${C_RESET}"
+    echo -e "${C_BOLD}Wola AI Node - Cleanup & Purge Utility (wola.purge / wola.uninstall)${C_RESET}"
     echo ""
     echo -e "Usage: $(basename "$0") [OPTIONS] [LEVEL]"
     echo ""
     echo "Hardness Levels:"
-    echo "  1, --soft, --level 1     Level 1: Soft (Default)"
-    echo "                           Deletes all Wolarc system files, binaries, configs, locks & logs."
+    echo "  1, --soft, --level 1     Level 1: Soft / Standard Cleanup (Default)"
+    echo "                           Deletes all Wolarc system files, binaries, configs, locks, daemons & logs."
     echo "                           PRESERVES: Downloaded models, vector DB, and knowledge notes."
     echo ""
-    echo "  2, --medium, --level 2   Level 2: Medium"
-    echo "                           Deletes all Wolarc system files PLUS downloaded models (~/models)"
+    echo "  2, --medium, --level 2   Level 2: Medium Cleanup"
+    echo "                           Deletes all Level 1 items PLUS downloaded models (~/models)"
     echo "                           and vector database (knowledge_db.json)."
     echo "                           PRESERVES: User knowledge notes directory."
     echo ""
     echo "  3, --hard, --nuclear     Level 3: Hard / Complete Self-Destruction"
     echo "                           Irreversibly erases EVERYTHING: system files, binaries, models,"
     echo "                           vector database, AND user knowledge notes directory."
+    echo ""
+    echo "Granular Deletion Flags:"
+    echo "  --logs                   Truncate / remove all system and service log files"
+    echo "  --cache                  Clear telemetry, update caches, bench caches and __pycache__"
+    echo "  --chats                  Purge saved conversation histories and chat dialogue vectors"
+    echo "  --db                     Permanently delete vector database (knowledge_db.json)"
+    echo "  --models                 Delete all downloaded .gguf models in models directory"
     echo ""
     echo "Options:"
     echo "  -y, --yes, --force       Non-interactive execution (skip confirmation prompts)"
@@ -88,6 +122,11 @@ while [ $# -gt 0 ]; do
                 *) echo -e "${C_RED}Error: Invalid level '$1'. Choose 1, 2, or 3.${C_RESET}"; exit 1 ;;
             esac
             ;;
+        "--logs") GRANULAR_LOGS=true ;;
+        "--cache") GRANULAR_CACHE=true ;;
+        "--chats") GRANULAR_CHATS=true ;;
+        "--db") GRANULAR_DB=true ;;
+        "--models") GRANULAR_MODELS=true ;;
         "-y"|"--yes"|"--force") FORCE=true ;;
         "--purge-repo") PURGE_REPO=true ;;
         "-h"|"--help") show_help ;;
@@ -99,7 +138,91 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# If level not specified on CLI, display interactive menu
+# -------------------------------------------------------------
+# Handle Granular Purge Actions (if specified)
+# -------------------------------------------------------------
+if [ "$GRANULAR_LOGS" = true ] || [ "$GRANULAR_CACHE" = true ] || [ "$GRANULAR_CHATS" = true ] || [ "$GRANULAR_DB" = true ] || [ "$GRANULAR_MODELS" = true ]; then
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+    echo -e "                   ${C_BOLD}WOLA GRANULAR PURGE CONTROLLER${C_RESET}"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+
+    if [ "$GRANULAR_LOGS" = true ]; then
+        echo -e "  [*] Purging all service logs..."
+        for lf in "$LOG_DIR"/*.log "$HOME"/*.log "$HOME"/.wola_thinking.log; do
+            [ -f "$lf" ] && rm -f "$lf" && echo -e "      ${C_GREEN}✓ Removed:${C_RESET} $(basename "$lf")"
+        done
+        mkdir -p "$LOG_DIR"
+    fi
+
+    if [ "$GRANULAR_CACHE" = true ]; then
+        echo -e "  [*] Purging caches, telemetry, and bytecode..."
+        rm -f "$RUN_DIR"/*_cache.json "$RUN_DIR"/wola_metrics.json \
+              "$HOME"/.wola_*cache.json "$HOME"/.wola_metrics.json 2>/dev/null || true
+        rm -rf "$HOME/__pycache__" "$LIB_DIR/__pycache__" "$REPO_DIR/__pycache__" 2>/dev/null || true
+        echo -e "      ${C_GREEN}✓ Python bytecode and cache files erased.${C_RESET}"
+    fi
+
+    if [ "$GRANULAR_CHATS" = true ]; then
+        echo -e "  [*] Purging conversation records and dialogue vectors..."
+        if [ "$FORCE" = false ]; then
+            read -p "  Purge all chat memory files and vectors? (y/N): " conf_c
+            if [[ ! "$conf_c" =~ ^[Yy] ]]; then
+                echo "  Chat purge cancelled."
+            else
+                rm -rf "${CHATS_DIR:?}"/* 2>/dev/null || true
+                python3 -c "
+import json, os, fcntl
+dbp = os.path.expanduser('$DB_FILE')
+if os.path.exists(dbp):
+    try:
+        with open(dbp + '.lock', 'w') as lf:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            with open(dbp, 'r') as df: db = json.load(df)
+            to_del = [k for k in db if db[k].get('file_type') == 'conversation' or os.path.basename(k).startswith('chat_')]
+            for k in to_del: del db[k]
+            with open(dbp, 'w') as df: json.dump(db, df, indent=2)
+            fcntl.flock(lf, fcntl.LOCK_UN)
+    except Exception: pass
+" 2>/dev/null || true
+                echo -e "      ${C_GREEN}✓ Chat sessions and conversation vectors deleted.${C_RESET}"
+            fi
+        fi
+    fi
+
+    if [ "$GRANULAR_DB" = true ]; then
+        echo -e "  [*] Purging vector database..."
+        if [ "$FORCE" = false ]; then
+            read -p "  Permanently delete vector database ($DB_FILE)? (y/N): " conf_db
+            if [[ ! "$conf_db" =~ ^[Yy] ]]; then
+                echo "  Database purge cancelled."
+            else
+                rm -f "$DB_FILE" "$DB_FILE.lock" "$HOME/knowledge_db.json"* "$DATA_DIR/knowledge_db.json"* 2>/dev/null || true
+                echo -e "      ${C_GREEN}✓ Vector database files removed.${C_RESET}"
+            fi
+        fi
+    fi
+
+    if [ "$GRANULAR_MODELS" = true ]; then
+        echo -e "  [*] Purging downloaded GGUF models..."
+        if [ "$FORCE" = false ]; then
+            read -p "  Permanently delete ALL .gguf models in $MODELS_DIR? (y/N): " conf_m
+            if [[ ! "$conf_m" =~ ^[Yy] ]]; then
+                echo "  Model purge cancelled."
+            else
+                rm -f "$MODELS_DIR"/*.gguf 2>/dev/null || true
+                echo -e "      ${C_GREEN}✓ All GGUF models removed from $MODELS_DIR.${C_RESET}"
+            fi
+        fi
+    fi
+
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+    echo -e "  ${C_GREEN}Granular cleanup complete.${C_RESET}"
+    exit 0
+fi
+
+# -------------------------------------------------------------
+# Interactive Menu if level is unspecified
+# -------------------------------------------------------------
 if [ -z "$LEVEL" ]; then
     echo -e "${C_CYAN}╔══════════════════════════════════════════════════════════════════╗${C_RESET}"
     echo -e "${C_CYAN}║${C_RESET}       ${C_BOLD}WOLARC SYSTEM PURGE & SELF-DESTRUCT CONTROLLER${C_RESET}             ${C_CYAN}║${C_RESET}"
@@ -157,7 +280,7 @@ if [ "$FORCE" = false ]; then
         echo -e "${C_RED}║  Level 3 / Self-Destruct will permanently erase ALL files:       ║${C_RESET}"
         echo -e "${C_RED}║  • System binaries, symlinks, configs, logs, locks               ║${C_RESET}"
         echo -e "${C_RED}║  • Downloaded models: $MODELS_DIR                                ║${C_RESET}"
-        echo -e "${C_RED}║  • Vector database:   $HOME/knowledge_db.json                    ║${C_RESET}"
+        echo -e "${C_RED}║  • Vector database:   $DB_FILE                                   ║${C_RESET}"
         echo -e "${C_RED}║  • KNOWLEDGE FOLDER:  $KNOWLEDGE_DIR                             ║${C_RESET}"
         echo -e "${C_RED}║  THIS ACTION IS IRREVERSIBLE AND CANNOT BE UNDONE!              ║${C_RESET}"
         echo -e "${C_RED}╚══════════════════════════════════════════════════════════════════╝${C_RESET}"
@@ -177,33 +300,32 @@ echo -e "  • Stopping active services..."
 pkill -9 -f "llama-server" 2>/dev/null || true
 pkill -9 -f "agent.py" 2>/dev/null || true
 pkill -9 -f "indexer.py" 2>/dev/null || true
+pkill -9 -f "wola-tunnel-daemon" 2>/dev/null || true
 pkill -9 -f "ssh.*(localhost.run|serveo.net|pinggy.io)" 2>/dev/null || true
+pkill -9 -f "cloudflared.*tunnel" 2>/dev/null || true
 pkill -9 -f "wola-tui" 2>/dev/null || true
 command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
 sleep 1
 
 # 2. Remove runtime locks, state, caches, metrics
 echo -e "  • Removing runtime state, locks, and cache files..."
-rm -f "$HOME/.wola.lock"
-rm -f "$HOME/.wola_url"
-rm -f "$HOME/.wola_endpoint"
-rm -f "$HOME/.wola_provider"
-rm -f "$HOME/.wola_metrics.json"
-rm -f "$HOME/.wola_update_cache.json"
-rm -f "$HOME/.wola_bench_cache.json"
-rm -f "$HOME/.wola_version"
-rm -f "$HOME/.wola_thinking.log"
-rm -f "$HOME/.wola_tuner.log"
+rm -rf "$RUN_DIR" 2>/dev/null || true
+rm -f "$HOME/.wola.lock" "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider"
+rm -f "$HOME/.wola_metrics.json" "$HOME/.wola_update_cache.json" "$HOME/.wola_bench_cache.json"
+rm -f "$HOME/.wola_version" "$HOME/.wola_thinking.log" "$HOME/.wola_tuner.log" "$HOME/.wola_tunnel_daemon.pid"
 rm -f "$HOME"/.wola* 2>/dev/null || true
 
 # 3. Remove log files
 echo -e "  • Removing log files..."
+rm -rf "$LOG_DIR" 2>/dev/null || true
 rm -f "$HOME/chat.log" "$HOME/embed.log" "$HOME/agent.log" "$HOME/tunnel.log" "$HOME/indexer.log"
 rm -f "$HOME/llama_chat.log" "$HOME/llama_embed.log"
 
-# 4. Remove deployed daemon scripts in $HOME
-echo -e "  • Removing daemon scripts in $HOME..."
-rm -f "$HOME/agent.py" "$HOME/indexer.py"
+# 4. Remove deployed daemon scripts and bytecode
+echo -e "  • Removing daemon scripts and Python cache..."
+rm -rf "$LIB_DIR" 2>/dev/null || true
+rm -f "$HOME/agent.py" "$HOME/indexer.py" "$HOME/web_ui.py"
+rm -rf "$HOME/__pycache__" "$REPO_DIR/__pycache__" 2>/dev/null || true
 
 # 5. Remove configuration files
 echo -e "  • Removing configuration (~/.wolarc)..."
@@ -217,6 +339,9 @@ for bdir in "${CANDIDATE_BINS[@]}"; do
     for cmd in wolarc wola.r wola.k wola.rs wola.d wola.url wola.link wola.chat wola.c \
                wola.bench wola.b wola.log wola.logs wola.th wola.gt wola.gh wola.t \
                wola.m wola.i wola.u wola.upgrade wola-h wola.h wola-tui wola.tui \
+               wola.start wola.stop wola.restart wola.check wola.dashboard \
+               wola.models wola.store wola.knowledge wola.think wola.local wola.hotspot \
+               wola.ts wola.tailscale wola.config wola.update wola.uninstall wola.help \
                wola.purge wola.destroy wola.selfdestruct wola.nuke; do
         rm -f "$bdir/$cmd" 2>/dev/null || true
     done
@@ -233,15 +358,21 @@ if [ "$LEVEL" -ge 2 ]; then
     fi
 
     echo -e "  • ${C_RED}Erasing vector database files...${C_RESET}"
+    rm -rf "$DATA_DIR" 2>/dev/null || true
     rm -f "$HOME/knowledge_db.json" "$HOME"/knowledge_db.json* 2>/dev/null || true
 fi
 
-# 8. Level 3: Knowledge folder
+# 8. Level 3: Knowledge folder & chats folder
 if [ "$LEVEL" -ge 3 ]; then
     echo -e "  • ${C_RED}Erasing knowledge base directory: $KNOWLEDGE_DIR...${C_RESET}"
     if [ -n "$KNOWLEDGE_DIR" ] && [ -d "$KNOWLEDGE_DIR" ] && [ "$KNOWLEDGE_DIR" != "$HOME" ] && [ "$KNOWLEDGE_DIR" != "/" ]; then
         rm -rf "$KNOWLEDGE_DIR"
     fi
+    echo -e "  • ${C_RED}Erasing chat history directory: $CHATS_DIR...${C_RESET}"
+    if [ -n "$CHATS_DIR" ] && [ -d "$CHATS_DIR" ] && [ "$CHATS_DIR" != "$HOME" ] && [ "$CHATS_DIR" != "/" ]; then
+        rm -rf "$CHATS_DIR"
+    fi
+    rm -rf "$WOLA_DIR" 2>/dev/null || true
 fi
 
 # 9. Purge Repository if requested or Level 3
@@ -259,7 +390,7 @@ echo ""
 echo -e "${C_GREEN}═════════════════════════════════════════════════════════════════${C_RESET}"
 if [ "$LEVEL" = "1" ]; then
     echo -e "  ${C_BOLD}${C_GREEN}✓ WOLARC LEVEL 1 CLEANUP COMPLETE${C_RESET}"
-    echo -e "  • All system binaries, configurations, locks, and logs removed."
+    echo -e "  • All system binaries, configurations, locks, daemons, and logs removed."
     echo -e "  • Models (~/models), Vector DB & Knowledge notes preserved."
 elif [ "$LEVEL" = "2" ]; then
     echo -e "  ${C_BOLD}${C_GREEN}✓ WOLARC LEVEL 2 PURGE COMPLETE${C_RESET}"

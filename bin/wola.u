@@ -11,8 +11,10 @@ C_MAGENTA="\033[1;35m"
 C_DIM="\033[2m"
 
 CONFIG="$HOME/.wolarc"
-LOCK="$HOME/.wola.lock"
-CACHE_FILE="$HOME/.wola_update_cache.json"
+LOCK="$HOME/.wola/run/wola.lock"
+[ -f "$HOME/.wola.lock" ] && [ ! -f "$LOCK" ] && LOCK="$HOME/.wola.lock"
+CACHE_FILE="$HOME/.wola/run/wola_update_cache.json"
+[ -f "$HOME/.wola_update_cache.json" ] && [ ! -f "$CACHE_FILE" ] && CACHE_FILE="$HOME/.wola_update_cache.json"
 REPO_OWNER="ovrrup"
 REPO_NAME="wolarc"
 GITHUB_API="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits/main"
@@ -69,6 +71,8 @@ except Exception:
 get_current_commit() {
     if [ -n "$REPO_DIR" ] && [ -d "$REPO_DIR/.git" ]; then
         git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null
+    elif [ -f "$HOME/.wola/run/wola_version" ]; then
+        head -n 1 "$HOME/.wola/run/wola_version" | cut -c1-7
     elif [ -f "$HOME/.wola_version" ]; then
         head -n 1 "$HOME/.wola_version" | cut -c1-7
     else
@@ -179,7 +183,9 @@ install_updates() {
         git -C "$REPO_DIR" pull origin main
         local new_sha
         new_sha=$(git -C "$REPO_DIR" rev-parse --short HEAD)
-        echo "$new_sha" > "$HOME/.wola_version"
+        mkdir -p "$HOME/.wola/run" 2>/dev/null
+        echo "$new_sha" > "$HOME/.wola/run/wola_version"
+        echo "$new_sha" > "$HOME/.wola_version" 2>/dev/null || true
 
         echo -e "[*] Running installer wizard to re-link binaries..."
         bash "$REPO_DIR/install.sh" --upgrade

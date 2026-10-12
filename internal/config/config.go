@@ -70,13 +70,37 @@ func DefaultConfig() *Config {
 	} else if p := filepath.Join(home, "llama.cpp", "build", "bin", "llama-server"); fileExists(p) {
 		defaultLlama = p
 	}
+	wolaData := filepath.Join(home, ".wola", "data")
+	wolaRun := filepath.Join(home, ".wola", "run")
+	dbFile := filepath.Join(wolaData, "knowledge_db.json")
+	if !fileExists(dbFile) && fileExists(filepath.Join(home, "knowledge_db.json")) {
+		dbFile = filepath.Join(home, "knowledge_db.json")
+	}
+	metricsFile := filepath.Join(wolaRun, "wola_metrics.json")
+	if !fileExists(metricsFile) && fileExists(filepath.Join(home, ".wola_metrics.json")) {
+		metricsFile = filepath.Join(home, ".wola_metrics.json")
+	}
+
+	docBase := filepath.Join(home, "storage", "shared", "Documents")
+	if !fileExists(docBase) {
+		docBase = filepath.Join(home, "Documents")
+	}
+	kDir := filepath.Join(docBase, "wola", "knowledge")
+	cDir := filepath.Join(docBase, "wola", "chats")
+	if fileExists(filepath.Join(docBase, "agent_knowledge")) {
+		kDir = filepath.Join(docBase, "agent_knowledge")
+	}
+	if fileExists(filepath.Join(docBase, "agent_chats")) {
+		cDir = filepath.Join(docBase, "agent_chats")
+	}
+
 	return &Config{
 		LlamaBin:            defaultLlama,
 		ModelsDir:           filepath.Join(home, "models"),
-		KnowledgeDir:        filepath.Join(home, "storage", "shared", "Documents", "agent_knowledge"),
-		ChatsDir:            filepath.Join(home, "storage", "shared", "Documents", "agent_chats"),
-		DBFile:              filepath.Join(home, "knowledge_db.json"),
-		MetricsFile:         filepath.Join(home, ".wola_metrics.json"),
+		KnowledgeDir:        kDir,
+		ChatsDir:            cDir,
+		DBFile:              dbFile,
+		MetricsFile:         metricsFile,
 		ChatModel:           "",
 		EmbedModel:          "",
 		ChatPort:            "8080",
@@ -244,9 +268,17 @@ func SetConfigKey(key, value string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
-func IsNodeRunning() bool {
+func getNodeLockPath() string {
 	home, _ := os.UserHomeDir()
-	lockPath := filepath.Join(home, ".wola.lock")
+	p := filepath.Join(home, ".wola", "run", "wola.lock")
+	if fileExists(p) {
+		return p
+	}
+	return filepath.Join(home, ".wola.lock")
+}
+
+func IsNodeRunning() bool {
+	lockPath := getNodeLockPath()
 	if _, err := os.Stat(lockPath); err == nil {
 		return true
 	}
@@ -254,8 +286,7 @@ func IsNodeRunning() bool {
 }
 
 func NodeUptime() string {
-	home, _ := os.UserHomeDir()
-	lockPath := filepath.Join(home, ".wola.lock")
+	lockPath := getNodeLockPath()
 	info, err := os.Stat(lockPath)
 	if err != nil {
 		return "Offline"
@@ -272,24 +303,26 @@ func NodeUptime() string {
 
 func GetTunnelURL() string {
 	home, _ := os.UserHomeDir()
-	urlPath := filepath.Join(home, ".wola_url")
-	if data, err := os.ReadFile(urlPath); err == nil {
-		u := strings.TrimSpace(string(data))
-		if strings.HasPrefix(u, "http") {
-			return u
+	for _, p := range []string{filepath.Join(home, ".wola", "run", "wola_url"), filepath.Join(home, ".wola_url")} {
+		if data, err := os.ReadFile(p); err == nil {
+			u := strings.TrimSpace(string(data))
+			if strings.HasPrefix(u, "http") {
+				return u
+			}
 		}
 	}
 
-	logPath := filepath.Join(home, "tunnel.log")
-	if data, err := os.ReadFile(logPath); err == nil {
-		text := string(data)
-		lines := strings.Split(text, "\n")
-		for i := len(lines) - 1; i >= 0; i-- {
-			l := strings.TrimSpace(lines[i])
-			if (strings.Contains(l, ".lhr.life") || strings.Contains(l, ".serveo.net") || strings.Contains(l, ".pinggy.link")) && strings.Contains(l, "https://") {
-				for _, word := range strings.Fields(l) {
-					if strings.HasPrefix(word, "https://") && !strings.Contains(word, "admin") {
-						return word
+	for _, p := range []string{filepath.Join(home, ".wola", "logs", "tunnel.log"), filepath.Join(home, "tunnel.log")} {
+		if data, err := os.ReadFile(p); err == nil {
+			text := string(data)
+			lines := strings.Split(text, "\n")
+			for i := len(lines) - 1; i >= 0; i-- {
+				l := strings.TrimSpace(lines[i])
+				if (strings.Contains(l, ".trycloudflare.com") || strings.Contains(l, ".lhr.life") || strings.Contains(l, ".serveo.net") || strings.Contains(l, ".pinggy.link")) && strings.Contains(l, "https://") {
+					for _, word := range strings.Fields(l) {
+						if strings.HasPrefix(word, "https://") && !strings.Contains(word, "admin") {
+							return word
+						}
 					}
 				}
 			}
@@ -310,7 +343,17 @@ type MetricsData struct {
 
 func GetMetrics(cfg *Config) MetricsData {
 	var m MetricsData
-	if data, err := os.ReadFile(cfg.MetricsFile); err == nil {
+	targetFile := cfg.MetricsFile
+	if !fileExists(targetFile) {
+		home, _ := os.UserHomeDir()
+		alt := filepath.Join(home, ".wola", "run", "wola_metrics.json")
+		if fileExists(alt) {
+			targetFile = alt
+		} else {
+			targetFile = filepath.Join(home, ".wola_metrics.json")
+		}
+	}
+	if data, err := os.ReadFile(targetFile); err == nil {
 		_ = json.Unmarshal(data, &m)
 	}
 	return m

@@ -10,6 +10,29 @@ C_YELLOW="\033[1;33m"
 C_CYAN="\033[1;36m"
 C_MAGENTA="\033[1;35m"
 
+LOG_DIR="$HOME/.wola/logs"
+
+resolve_log() {
+    local fname="$1"
+    if [ -f "$LOG_DIR/$fname" ]; then
+        echo "$LOG_DIR/$fname"
+    elif [ -f "$HOME/$fname" ]; then
+        echo "$HOME/$fname"
+    else
+        echo "$LOG_DIR/$fname"
+    fi
+}
+
+resolve_think_log() {
+    if [ -f "$LOG_DIR/thinking.log" ]; then
+        echo "$LOG_DIR/thinking.log"
+    elif [ -f "$HOME/.wola_thinking.log" ]; then
+        echo "$HOME/.wola_thinking.log"
+    else
+        echo "$LOG_DIR/thinking.log"
+    fi
+}
+
 tail_log() {
     local name="$1"
     local file="$2"
@@ -21,21 +44,104 @@ tail_log() {
     tail -f -n 30 "$file"
 }
 
+clear_logs() {
+    echo -e "${C_CYAN}==================================================${C_RESET}"
+    echo -e "         ${C_BOLD}WOLA LOG CLEANER & TRUNCATION${C_RESET}"
+    echo -e "${C_CYAN}==================================================${C_RESET}"
+    local cleared=0
+    local reclaimed_bytes=0
+
+    local target_logs=(
+        "$LOG_DIR/chat.log"
+        "$LOG_DIR/embed.log"
+        "$LOG_DIR/agent.log"
+        "$LOG_DIR/tunnel.log"
+        "$LOG_DIR/indexer.log"
+        "$LOG_DIR/thinking.log"
+        "$HOME/chat.log"
+        "$HOME/embed.log"
+        "$HOME/agent.log"
+        "$HOME/tunnel.log"
+        "$HOME/indexer.log"
+        "$HOME/.wola_thinking.log"
+    )
+
+    for lf in "${target_logs[@]}"; do
+        if [ -f "$lf" ]; then
+            local sz=$(stat -c%s "$lf" 2>/dev/null || wc -c < "$lf" 2>/dev/null || echo 0)
+            reclaimed_bytes=$((reclaimed_bytes + sz))
+            > "$lf"
+            cleared=$((cleared + 1))
+            local h_sz=$(du -h "$lf" 2>/dev/null | cut -f1)
+            echo -e "  ${C_GREEN}✓ Cleared:${C_RESET} $(basename "$lf") (${C_DIM}$lf${C_RESET})"
+        fi
+    done
+
+    local mb=$(awk "BEGIN {printf \"%.2f\", $reclaimed_bytes/1048576}")
+    echo -e "${C_CYAN}--------------------------------------------------${C_RESET}"
+    echo -e "  ${C_GREEN}Successfully truncated $cleared log file(s).${C_RESET}"
+    echo -e "  ${C_BOLD}Total storage reclaimed:${C_RESET} ${mb} MB"
+    echo -e "${C_CYAN}==================================================${C_RESET}"
+}
+
+show_snapshot() {
+    echo -e "${C_CYAN}╭────────────────────────────────────────────────────────────────╮${C_RESET}"
+    echo -e "${C_CYAN}│${C_RESET}                 ${C_BOLD}WOLARC LOG MONITOR & DIAGNOSTICS${C_RESET}               ${C_CYAN}│${C_RESET}"
+    echo -e "${C_CYAN}╰────────────────────────────────────────────────────────────────╯${C_RESET}"
+    
+    for item in "Chat LLM:chat.log" "Embed Engine:embed.log" "Agent API:agent.log" "Tunnel:tunnel.log" "Indexer:indexer.log" "Thinking:thinking.log"; do
+        local title="${item%%:*}"
+        local fname="${item##*:}"
+        local fpath=""
+        if [ "$fname" = "thinking.log" ]; then
+            fpath="$(resolve_think_log)"
+        else
+            fpath="$(resolve_log "$fname")"
+        fi
+        local sz=""
+        [ -f "$fpath" ] && sz=" ($(du -h "$fpath" 2>/dev/null | cut -f1))"
+        echo -e "\n${C_BOLD}${title}${C_RESET}${sz} (${C_DIM}tail -n 3 $fpath${C_RESET}):"
+        if [ -f "$fpath" ] && [ -s "$fpath" ]; then
+            tail -n 3 "$fpath" | sed 's/^/  /'
+        elif [ -f "$fpath" ]; then
+            echo -e "  ${C_DIM}(empty log - 0 bytes)${C_RESET}"
+        else
+            echo -e "  ${C_DIM}(no log created yet)${C_RESET}"
+        fi
+    done
+    echo -e "\n${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
+    echo -e "  ${C_BOLD}Commands:${C_RESET}"
+    echo -e "    wola.log chat      • Follow Chat engine log live"
+    echo -e "    wola.log embed     • Follow Embedding engine log live"
+    echo -e "    wola.log agent     • Follow Agent API Gateway log live"
+    echo -e "    wola.log tunnel    • Follow SSH remote tunnel log live"
+    echo -e "    wola.log indexer   • Follow Background note indexer"
+    echo -e "    wola.log think     • Follow Thinking stream log"
+    echo -e "    wola.log clear     • Truncate all logs to 0 bytes"
+    echo -e "${C_CYAN}=================================================================${C_RESET}"
+}
+
 case "$1" in
     "chat")
-        tail_log "Chat LLM Engine" "$HOME/chat.log"
+        tail_log "Chat LLM Engine" "$(resolve_log chat.log)"
         ;;
     "embed")
-        tail_log "Embedding Engine" "$HOME/embed.log"
+        tail_log "Embedding Engine" "$(resolve_log embed.log)"
         ;;
     "agent"|"api")
-        tail_log "Agent API Gateway" "$HOME/agent.log"
+        tail_log "Agent API Gateway" "$(resolve_log agent.log)"
         ;;
     "tunnel")
-        tail_log "Remote Tunnel" "$HOME/tunnel.log"
+        tail_log "Remote Tunnel" "$(resolve_log tunnel.log)"
         ;;
     "indexer"|"rag")
-        tail_log "Document Indexer" "$HOME/indexer.log"
+        tail_log "Document Indexer" "$(resolve_log indexer.log)"
+        ;;
+    "think"|"thinking")
+        tail_log "Inference & Thinking" "$(resolve_think_log)"
+        ;;
+    "clear"|"clean"|"truncate"|"zero")
+        clear_logs
         ;;
     "-h"|"--help"|"help")
         echo -e "${C_BOLD}Wolarc Log Monitor (wola.log / wola.l)${C_RESET}"
@@ -47,31 +153,10 @@ case "$1" in
         echo "  wola.log tunnel              Follow remote tunnel log live"
         echo "  wola.log indexer             Follow note indexer log live"
         echo "  wola.log think               Follow thinking stream live"
+        echo "  wola.log clear               Truncate all log files to 0 bytes"
         exit 0
         ;;
     *)
-        echo -e "${C_CYAN}╭────────────────────────────────────────────────────────────────╮${C_RESET}"
-        echo -e "${C_CYAN}│${C_RESET}                 ${C_BOLD}WOLARC LOG MONITOR & DIAGNOSTICS${C_RESET}               ${C_CYAN}│${C_RESET}"
-        echo -e "${C_CYAN}╰────────────────────────────────────────────────────────────────╯${C_RESET}"
-        
-        for item in "Chat LLM:chat.log" "Embed Engine:embed.log" "Agent API:agent.log" "Tunnel:tunnel.log" "Indexer:indexer.log"; do
-            title="${item%%:*}"
-            fname="${item##*:}"
-            fpath="$HOME/$fname"
-            echo -e "\n${C_BOLD}${title}${C_RESET} (${C_DIM}tail -n 3 $fpath${C_RESET}):"
-            if [ -f "$fpath" ]; then
-                tail -n 3 "$fpath" | sed 's/^/  /'
-            else
-                echo -e "  ${C_DIM}(no log created yet)${C_RESET}"
-            fi
-        done
-        echo -e "\n${C_CYAN}──────────────────────────────────────────────────────────────────${C_RESET}"
-        echo -e "  ${C_BOLD}Live Follow Mode:${C_RESET}"
-        echo -e "    wola.log chat      • Follow Chat engine log"
-        echo -e "    wola.log embed     • Follow Embedding engine log"
-        echo -e "    wola.log agent     • Follow Agent API Gateway log"
-        echo -e "    wola.log tunnel    • Follow SSH remote tunnel log"
-        echo -e "    wola.log indexer   • Follow Background note indexer"
-        echo -e "${C_CYAN}=================================================================${C_RESET}"
+        show_snapshot
         ;;
 esac

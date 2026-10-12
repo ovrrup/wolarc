@@ -20,10 +20,24 @@ CONFIG_PATH = os.path.expanduser("~/.wolarc")
 
 def load_cfg():
     default_doc_dir = os.path.expanduser("~/storage/shared/Documents") if os.path.exists(os.path.expanduser("~/storage/shared/Documents")) else os.path.expanduser("~/Documents")
+    wola_docs = os.path.join(default_doc_dir, "wola")
+
+    data_dir = os.path.expanduser("~/.wola/data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    default_db = os.path.join(data_dir, "knowledge_db.json")
+    if not os.path.exists(default_db) and os.path.exists(os.path.expanduser("~/knowledge_db.json")):
+        default_db = os.path.expanduser("~/knowledge_db.json")
+
+    legacy_k = os.path.join(default_doc_dir, "agent_knowledge")
+    legacy_c = os.path.join(default_doc_dir, "agent_chats")
+    default_k = legacy_k if os.path.exists(legacy_k) else os.path.join(wola_docs, "knowledge")
+    default_c = legacy_c if os.path.exists(legacy_c) else os.path.join(wola_docs, "chats")
+
     cfg = {
-        "KNOWLEDGE_DIR": os.path.join(default_doc_dir, "agent_knowledge"),
-        "CHATS_DIR": os.path.join(default_doc_dir, "agent_chats"),
-        "DB_FILE": os.path.expanduser("~/knowledge_db.json"),
+        "KNOWLEDGE_DIR": default_k,
+        "CHATS_DIR": default_c,
+        "DB_FILE": default_db,
         "EMBED_PORT": "8081",
         "CHUNK_SIZE": 1200
     }
