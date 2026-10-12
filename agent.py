@@ -1,5 +1,7 @@
 import json, os, requests, time, threading, signal, subprocess, re, socket, hashlib
 import numpy as np
+import tempfile, fcntl
+from contextlib import contextmanager
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 
@@ -38,6 +40,53 @@ _LAST_FLUSH = time.time()
 
 _CACHE_LOCK = threading.Lock()
 _STORE_LOCK = threading.Lock()
+
+@contextmanager
+def db_lock(db_file, exclusive=True, timeout=15.0):
+    lock_path = f"{db_file}.lock"
+    try:
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+    except Exception:
+        yield
+        return
+
+    flag = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+    start = time.time()
+    acquired = False
+    try:
+        while True:
+            try:
+                fcntl.flock(lock_fd, flag | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except (BlockingIOError, OSError):
+                if time.time() - start >= timeout:
+                    try:
+                        fcntl.flock(lock_fd, flag)
+                        acquired = True
+                    except Exception:
+                        pass
+                    break
+                time.sleep(0.05)
+        yield
+    finally:
+        if acquired:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            except Exception:
+                pass
+        try:
+            os.close(lock_fd)
+        except Exception:
+            pass
+
+def is_indexer_active():
+    try:
+        res = subprocess.run(["pgrep", "-f", "indexer.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=2)
+        pids = [p.strip() for p in res.stdout.strip().split() if p.strip()]
+        return len(pids) > 0
+    except Exception:
+        return False
 _CHAT_SAVE_LOCK = threading.Lock()
 _SESSION_LOCK = threading.Lock()
 _ACTIVE_SESSION = {"id": None, "last_activity": 0}
@@ -300,13 +349,16 @@ def load_vector_store(db_file):
             return _VECTOR_STORE["matrix"], _VECTOR_STORE["metadata"]
 
         db = None
-        for _ in range(3):
+        for attempt in range(4):
             try:
-                with open(db_file, "r") as f:
-                    db = json.load(f)
+                with db_lock(db_file, exclusive=False, timeout=10.0):
+                    if not os.path.exists(db_file):
+                        return None, []
+                    with open(db_file, "r", encoding="utf-8") as f:
+                        db = json.load(f)
                 break
             except Exception:
-                time.sleep(0.05)
+                time.sleep(0.05 * (attempt + 1))
 
         if not db or not isinstance(db, dict):
             return None, []
@@ -359,11 +411,11 @@ def _background_index_chat_turn(user_msg, assistant_msg, sess_id, chat_file, cfg
         if not db_file:
             return
 
-        with _STORE_LOCK:
+        with db_lock(db_file, exclusive=True, timeout=15.0):
             db = {}
             if os.path.exists(db_file):
                 try:
-                    with open(db_file, "r") as f:
+                    with open(db_file, "r", encoding="utf-8") as f:
                         db = json.load(f)
                 except Exception:
                     db = {}
@@ -391,10 +443,25 @@ def _background_index_chat_turn(user_msg, assistant_msg, sess_id, chat_file, cfg
                 db[chat_file]["chunks"] = chunks
                 db[chat_file]["updated_at"] = time.time()
 
-                tmp_db = f"{db_file}.tmp"
-                with open(tmp_db, "w") as f:
-                    json.dump(db, f, indent=2)
-                os.replace(tmp_db, db_file)
+                db_dir = os.path.dirname(os.path.abspath(db_file))
+                os.makedirs(db_dir, exist_ok=True)
+                temp_fd, temp_path = tempfile.mkstemp(prefix="wola_chat_db_", suffix=".tmp", dir=db_dir)
+                try:
+                    with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+                        json.dump(db, f, indent=2)
+                        f.flush()
+                        try:
+                            os.fsync(f.fileno())
+                        except Exception:
+                            pass
+                    os.replace(temp_path, db_file)
+                except Exception:
+                    if os.path.exists(temp_path):
+                        try:
+                            os.remove(temp_path)
+                        except Exception:
+                            pass
+                    raise
 
                 global _VECTOR_STORE
                 _VECTOR_STORE["mtime"] = 0
@@ -447,11 +514,17 @@ def save_chat_interaction(messages, assistant_reply, session_id=None, cfg=None):
         except Exception:
             return
 
-    threading.Thread(
-        target=_background_index_chat_turn,
-        args=(last_user_msg, clean_reply, sess_id, chat_file, cfg),
-        daemon=True
-    ).start()
+    global _VECTOR_STORE
+    _VECTOR_STORE["mtime"] = 0
+
+    # Only run background indexing if standalone (indexer daemon not running).
+    # When indexer daemon is running, it watches CHATS_DIR and chunks conversation turns natively.
+    if not is_indexer_active():
+        threading.Thread(
+            target=_background_index_chat_turn,
+            args=(last_user_msg, clean_reply, sess_id, chat_file, cfg),
+            daemon=True
+        ).start()
 
 def is_conversational_or_generic(query: str) -> bool:
     clean = re.sub(r'[^\w\s]', '', query.strip().lower())
@@ -977,14 +1050,6 @@ def create_embeddings():
             "total_tokens": total_tokens
         }
     })
-
-@app.after_request
-def after_request(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
-    response.headers["Access-Control-Max-Age"] = "86400"
-    return response
 
 @app.route("/chat/completions", methods=["OPTIONS"])
 @app.route("/v1/chat/completions", methods=["OPTIONS"])

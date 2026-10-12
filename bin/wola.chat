@@ -82,6 +82,7 @@ def stream_chat(history, session_id):
         sys.stdout.flush()
 
         try:
+            think_buf = ""
             for line in res.iter_lines():
                 if not line:
                     continue
@@ -99,22 +100,72 @@ def stream_chat(history, session_id):
                             if token:
                                 token_count += 1
                                 full_response += token
-                                # Handle thinking tag formatting in stream
-                                if "<think>" in token:
-                                    sys.stdout.write(f"\n{C_MAGENTA}{C_DIM}[Thinking...] ")
-                                    in_think = True
-                                    token = token.replace("<think>", "")
-                                elif "</think>" in token:
-                                    in_think = False
-                                    token = token.replace("</think>", f"{C_RESET}\n\n{C_GREEN}")
-                                
-                                sys.stdout.write(token)
-                                sys.stdout.flush()
+                                think_buf += token
+
+                                while think_buf:
+                                    if not in_think:
+                                        if "<think>" in think_buf:
+                                            before, think_buf = think_buf.split("<think>", 1)
+                                            if before:
+                                                sys.stdout.write(before)
+                                                sys.stdout.flush()
+                                            sys.stdout.write(f"\n{C_MAGENTA}{C_DIM}[Thinking...] ")
+                                            sys.stdout.flush()
+                                            in_think = True
+                                        else:
+                                            prefix_len = 0
+                                            for pl in range(min(len(think_buf), len("<think>") - 1), 0, -1):
+                                                if "<think>".startswith(think_buf[-pl:]):
+                                                    prefix_len = pl
+                                                    break
+                                            if prefix_len > 0:
+                                                safe_part = think_buf[:-prefix_len]
+                                                think_buf = think_buf[-prefix_len:]
+                                                if safe_part:
+                                                    sys.stdout.write(safe_part)
+                                                    sys.stdout.flush()
+                                            else:
+                                                sys.stdout.write(think_buf)
+                                                sys.stdout.flush()
+                                                think_buf = ""
+                                            break
+                                    else:
+                                        if "</think>" in think_buf:
+                                            thought_part, think_buf = think_buf.split("</think>", 1)
+                                            if thought_part:
+                                                sys.stdout.write(thought_part)
+                                                sys.stdout.flush()
+                                            sys.stdout.write(f"{C_RESET}\n\n{C_GREEN}")
+                                            sys.stdout.flush()
+                                            in_think = False
+                                        else:
+                                            prefix_len = 0
+                                            for pl in range(min(len(think_buf), len("</think>") - 1), 0, -1):
+                                                if "</think>".startswith(think_buf[-pl:]):
+                                                    prefix_len = pl
+                                                    break
+                                            if prefix_len > 0:
+                                                safe_part = think_buf[:-prefix_len]
+                                                think_buf = think_buf[-prefix_len:]
+                                                if safe_part:
+                                                    sys.stdout.write(safe_part)
+                                                    sys.stdout.flush()
+                                            else:
+                                                sys.stdout.write(think_buf)
+                                                sys.stdout.flush()
+                                                think_buf = ""
+                                            break
                     except Exception:
                         pass
         except Exception:
             pass
         finally:
+            if think_buf:
+                sys.stdout.write(think_buf)
+                sys.stdout.flush()
+            if in_think:
+                sys.stdout.write(C_RESET)
+                sys.stdout.flush()
             try:
                 res.close()
             except Exception:

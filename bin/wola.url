@@ -573,6 +573,16 @@ SELF_NAME=$(basename "$0")
 URL=$(get_url)
 PROVIDER=$(get_provider)
 
+# If invoked as wola.ts or wola.tailscale
+if [ "$SELF_NAME" = "wola.ts" ] || [ "$SELF_NAME" = "wola.tailscale" ]; then
+    if [ -n "$1" ]; then
+        manage_tailscale_cli "$@"
+    else
+        show_tailscale_gateway
+    fi
+    exit 0
+fi
+
 # If invoked as wola.local or wola.hotspot
 if [ "$SELF_NAME" = "wola.local" ] || [ "$SELF_NAME" = "wola.hotspot" ]; then
     case "$1" in

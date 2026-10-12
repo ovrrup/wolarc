@@ -92,10 +92,17 @@ start_node() {
         return 0
     fi
 
-    if is_running || [ -f "$LOCK" ]; then
+    if is_running; then
         echo -e "${C_RED}[-] Error: Wola AI Node is ALREADY RUNNING.${C_RESET}"
         echo "    Switch is ON. Run 'wola.k' to turn it off first."
         exit 1
+    fi
+
+    if [ -f "$LOCK" ]; then
+        echo -e "${C_YELLOW}[!] Stale lockfile detected (~/.wola.lock exists but no processes running).${C_RESET}"
+        echo -e "    [*] Automatically clearing stale lock and releasing resources..."
+        rm -f "$LOCK"
+        command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
     fi
 
     BIN=$(find_binary)

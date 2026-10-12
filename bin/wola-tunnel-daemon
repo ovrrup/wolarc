@@ -34,6 +34,12 @@ is_local_api_ready() {
     [ "$code" = "200" ] || [ "$code" = "204" ]
 }
 
+is_internet_available() {
+    curl -s -m 2 -o /dev/null "http://connectivitycheck.gstatic.com/generate_204" 2>/dev/null || \
+    curl -s -m 2 -o /dev/null "https://1.1.1.1" 2>/dev/null || \
+    curl -s -m 2 -o /dev/null "https://www.cloudflare.com" 2>/dev/null
+}
+
 kill_tunnel_processes() {
     pkill -9 -f "ssh.*localhost.run" 2>/dev/null || true
     pkill -9 -f "ssh.*serveo.net" 2>/dev/null || true
@@ -182,6 +188,8 @@ watchdog_worker() {
     echo "$$" > "$PID_FILE"
 
     local fail_count=0
+    local offline_backoff=20
+    local was_offline=false
 
     while true; do
         # Exit if node lock is gone
@@ -205,10 +213,33 @@ watchdog_worker() {
         local cur_prov="localhost.run"
         [ -f "$PROVIDER_FILE" ] && cur_prov=$(cat "$PROVIDER_FILE" | tr -d ' \n\r')
 
+        # If currently marked offline or URL missing
+        if [ "$cur_prov" = "offline" ] || [ -z "$cur_url" ]; then
+            if ! is_internet_available; then
+                if [ "$was_offline" = false ]; then
+                    log_msg "Internet connectivity offline. Entering battery-saver backoff mode (${offline_backoff}s)..."
+                    was_offline=true
+                fi
+                sleep "$offline_backoff"
+                if [ "$offline_backoff" -lt 300 ]; then
+                    offline_backoff=$((offline_backoff * 2))
+                    [ "$offline_backoff" -gt 300 ] && offline_backoff=300
+                fi
+                continue
+            else
+                if [ "$was_offline" = true ]; then
+                    log_msg "Internet connectivity restored! Reconnecting remote tunnel..."
+                    was_offline=false
+                fi
+                offline_backoff=20
+                fail_count=2
+            fi
+        fi
+
         local proc_alive=false
         if [ "$cur_prov" = "cloudflare" ]; then
             pgrep -f "cloudflared.*tunnel" >/dev/null 2>&1 && proc_alive=true
-        else
+        elif [ "$cur_prov" != "offline" ]; then
             pgrep -f "ssh.*${cur_prov}" >/dev/null 2>&1 && proc_alive=true
         fi
 
@@ -220,12 +251,24 @@ watchdog_worker() {
             log_msg "Tunnel URL health ping failed: ${cur_url} (fail_count=$fail_count)."
         else
             fail_count=0
+            was_offline=false
+            offline_backoff=20
         fi
 
         if [ $fail_count -ge 2 ]; then
-            log_msg "2 consecutive tunnel failures detected. Triggering auto-reconnect..."
-            reconnect_cascade "$PREF_PROVIDER"
-            fail_count=0
+            if ! is_internet_available; then
+                log_msg "Tunnel down and Internet is unreachable. Setting provider to offline."
+                echo "offline" > "$PROVIDER_FILE"
+                rm -f "$URL_FILE" "$ENDPOINT_FILE"
+                kill_tunnel_processes
+                was_offline=true
+                offline_backoff=30
+                fail_count=0
+            else
+                log_msg "2 consecutive tunnel failures detected with WAN active. Triggering auto-reconnect..."
+                reconnect_cascade "$PREF_PROVIDER"
+                fail_count=0
+            fi
         fi
 
         sleep 20
@@ -284,6 +327,22 @@ case "$1" in
         target="$2"
         [ -z "$target" ] && target="$PREF_PROVIDER"
         reconnect_cascade "$target"
+        # Ensure watchdog worker is running
+        need_spawn=true
+        if [ -f "$PID_FILE" ]; then
+            w_pid=$(cat "$PID_FILE" 2>/dev/null)
+            if [ -n "$w_pid" ] && kill -0 "$w_pid" 2>/dev/null; then
+                need_spawn=false
+            fi
+        fi
+        if [ "$need_spawn" = true ]; then
+            if command -v setsid >/dev/null 2>&1; then
+                setsid -f "$0" run-watchdog >/dev/null 2>&1
+            else
+                nohup "$0" run-watchdog >/dev/null 2>&1 &
+            fi
+            disown 2>/dev/null || true
+        fi
         ;;
 
     "status")

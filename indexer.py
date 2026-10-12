@@ -1,5 +1,6 @@
 import os, sys, time, json, subprocess, shutil, hashlib, struct, re, zlib, zipfile
-import urllib.request
+import urllib.request, tempfile, fcntl
+from contextlib import contextmanager
 
 try:
     import requests
@@ -55,42 +56,106 @@ EMBED_URL = f"http://127.0.0.1:{CFG['EMBED_PORT']}/embedding"
 DB_FILE = CFG["DB_FILE"]
 CHUNK_SIZE = CFG["CHUNK_SIZE"]
 
-def load_db():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r") as f:
-                data = json.load(f)
-            dirty = False
-            for k, doc in data.items():
-                for ch in doc.get("chunks", []):
-                    v = ch.get("vector", [])
-                    while isinstance(v, list) and len(v) > 0 and isinstance(v[0], list):
-                        v = v[0]
-                        ch["vector"] = v
-                        dirty = True
-            if dirty:
-                save_db(data)
-            return data
-        except Exception:
+@contextmanager
+def db_lock(exclusive=True, timeout=15.0):
+    lock_path = f"{DB_FILE}.lock"
+    try:
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+    except Exception:
+        yield
+        return
+
+    flag = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+    start = time.time()
+    acquired = False
+    try:
+        while True:
             try:
-                corrupt_bak = f"{DB_FILE}.corrupted.{int(time.time())}"
-                shutil.copy2(DB_FILE, corrupt_bak)
-                print(f"[Warn] Corrupted database backed up to {corrupt_bak}")
+                fcntl.flock(lock_fd, flag | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except (BlockingIOError, OSError):
+                if time.time() - start >= timeout:
+                    try:
+                        fcntl.flock(lock_fd, flag)
+                        acquired = True
+                    except Exception:
+                        pass
+                    break
+                time.sleep(0.05)
+        yield
+    finally:
+        if acquired:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
             except Exception:
                 pass
-            return {}
+        try:
+            os.close(lock_fd)
+        except Exception:
+            pass
+
+def _load_db_internal():
+    if not os.path.exists(DB_FILE):
+        return {}
+    with open(DB_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    dirty = False
+    for k, doc in data.items():
+        for ch in doc.get("chunks", []):
+            v = ch.get("vector", [])
+            while isinstance(v, list) and len(v) > 0 and isinstance(v[0], list):
+                v = v[0]
+                ch["vector"] = v
+                dirty = True
+    if dirty:
+        _save_db_internal(data)
+    return data
+
+def _save_db_internal(data):
+    db_dir = os.path.dirname(os.path.abspath(DB_FILE))
+    os.makedirs(db_dir, exist_ok=True)
+    temp_fd, temp_path = tempfile.mkstemp(prefix="knowledge_db_", suffix=".tmp", dir=db_dir)
+    try:
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        os.replace(temp_path, DB_FILE)
+    except Exception:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        raise
+
+def load_db():
+    if not os.path.exists(DB_FILE):
+        return {}
+    for attempt in range(4):
+        try:
+            with db_lock(exclusive=False, timeout=10.0):
+                return _load_db_internal()
+        except Exception:
+            time.sleep(0.08 * (attempt + 1))
+
+    # Persistent failure after retries
+    try:
+        if os.path.exists(DB_FILE) and os.path.getsize(DB_FILE) > 0:
+            corrupt_bak = f"{DB_FILE}.corrupted.{int(time.time())}"
+            shutil.copy2(DB_FILE, corrupt_bak)
+            print(f"[Warn] Corrupted database backed up to {corrupt_bak}")
+    except Exception:
+        pass
     return {}
 
 def save_db(data):
-    tmp_file = f"{DB_FILE}.tmp"
-    with open(tmp_file, "w") as f:
-        json.dump(data, f, indent=2)
-        f.flush()
-        try:
-            os.fsync(f.fileno())
-        except Exception:
-            pass
-    os.replace(tmp_file, DB_FILE)
+    with db_lock(exclusive=True, timeout=20.0):
+        _save_db_internal(data)
 
 def extract_embedding_vector(data):
     if not data:
@@ -795,40 +860,39 @@ def index_file(filepath):
             if new_count == 0 and filepath in db and len(records) == len(db[filepath].get("chunks", [])):
                 return
             category, _ = categorize_file(filepath)
-            db[filepath] = {
-                "filename": os.path.basename(filepath),
-                "file_type": category,
-                "file_size": os.path.getsize(filepath),
-                "chunks": records,
-                "updated_at": time.time()
-            }
-            save_db(db)
+            with db_lock(exclusive=True, timeout=20.0):
+                fresh_db = load_db()
+                fresh_db[filepath] = {
+                    "filename": os.path.basename(filepath),
+                    "file_type": category,
+                    "file_size": os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+                    "chunks": records,
+                    "updated_at": time.time()
+                }
+                save_db(fresh_db)
             print(f"[Indexed: {category.upper()}] {os.path.basename(filepath)} ({new_count} new, {reused_count} cached chunks)")
     except Exception as e:
         print(f"[Error] Processing {filepath}: {e}")
 
 def sync_knowledge_base():
     """Scan all watch directories, index files, and prune deleted entries."""
-    db = load_db()
-    existing_paths = set(db.keys())
-    current_paths = set()
-
     for d in WATCH_DIRS:
         os.makedirs(d, exist_ok=True)
         for root, _, files in os.walk(d):
             for file in files:
                 fpath = os.path.join(root, file)
                 if not should_ignore_file(fpath):
-                    current_paths.add(fpath)
                     index_file(fpath)
 
-    # Prune files that no longer exist
-    to_delete = [p for p in existing_paths if not os.path.exists(p)]
-    if to_delete:
-        for p in to_delete:
-            del db[p]
-        save_db(db)
-        print(f"[Cleaned] Pruned {len(to_delete)} stale file entries from vector database.")
+    # Prune files that no longer exist using a fresh database snapshot
+    with db_lock(exclusive=True, timeout=20.0):
+        fresh_db = load_db()
+        to_delete = [p for p in fresh_db if not os.path.exists(p)]
+        if to_delete:
+            for p in to_delete:
+                del fresh_db[p]
+            save_db(fresh_db)
+            print(f"[Cleaned] Pruned {len(to_delete)} stale file entries from vector database.")
 
 class ChangeHandler(FileSystemEventHandler):
     def on_modified(self, event):
@@ -843,11 +907,12 @@ class ChangeHandler(FileSystemEventHandler):
 
     def on_deleted(self, event):
         if not event.is_directory:
-            db = load_db()
-            if event.src_path in db:
-                del db[event.src_path]
-                save_db(db)
-                print(f"[Removed] {os.path.basename(event.src_path)} from vector database")
+            with db_lock(exclusive=True, timeout=10.0):
+                db = load_db()
+                if event.src_path in db:
+                    del db[event.src_path]
+                    save_db(db)
+                    print(f"[Removed] {os.path.basename(event.src_path)} from vector database")
 
 if __name__ == "__main__":
     run_once = any(arg in sys.argv for arg in ["--once", "sync", "-1"])
