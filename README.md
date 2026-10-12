@@ -7,6 +7,7 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 ---
 
 > 📖 **Guides & Documentation**:
+> - [**Official GitHub Documentation Wiki**](https://github.com/ovrrup/wolarc/wiki) (or offline [`wiki/`](wiki/Home.md)) — Complete encyclopedia with architecture guides, RAG pipelines, Tailscale mesh VPN, TUI manual, and hardware benchmarks.
 > - [**System Architecture & Reference Manual (`DOCUMENTATION.md`)**](DOCUMENTATION.md) — Comprehensive architecture, RAG vector pipeline, offline hotspot/LAN connectivity, daemon lifecycles, and 1-to-1 command specifications.
 > - [**Installation & Complete User Guide (`GETTING_STARTED.md`)**](GETTING_STARTED.md) — Step-by-step installation on Termux & Linux, model downloads, RAG setup, remote client app pairing (Chatbox, Obsidian, NextChat), and troubleshooting.
 > - [**Complete Command Reference (`COMMANDS.md`)**](COMMANDS.md) — Exhaustive CLI reference, Technical/Casual command pairs, TUI shortcuts, configuration variables, and discrete system operations.

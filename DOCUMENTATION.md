@@ -1,8 +1,11 @@
 # Wolarc System Architecture & Complete Reference Manual 🐺⚡
 
 > **Wolarc** is an autonomous, fully private, local RAG (Retrieval-Augmented Generation) AI node engineered for Android (via Termux) and Linux platforms. It orchestrates high-performance GGUF quantized models via `llama.cpp`, maintains an automated vector knowledge indexer over local files and conversations, exposes an OpenAI-compatible HTTP/SSE API gateway, provides an air-gapped zero-dependency Web UI, and establishes encrypted remote tunnels for off-network client pairing.
+>
+> 📚 **Official GitHub Wiki**: Browse the complete online documentation encyclopedia at [**github.com/ovrrup/wolarc/wiki**](https://github.com/ovrrup/wolarc/wiki) (or offline local copy in [`wiki/`](wiki/Home.md)).
 
 ---
+
 
 ## Table of Contents
 
