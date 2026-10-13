@@ -14,7 +14,7 @@ Explore the comprehensive guides and technical documentation:
 | 🧠 **Architecture & Engine** | System topology, dual-engine isolation, and RAG dataflow | [[Architecture & Topology\|Architecture-&-Topology]] • [[RAG & Vector Engine\|RAG-&-Vector-Engine]] • [[Daemon Lifecycle & Storage\|Daemon-Lifecycle-&-Storage]] |
 | ⌨️ **Commands & Control** | Strict 1-to-1 Technical vs. Casual command pairing and TUI | [[Complete Command Reference\|Complete-Command-Reference]] • [[Go TUI User Manual\|Go-TUI-User-Manual]] • [[Configuration Knobs\|Configuration-Knobs]] |
 | 🌐 **Networking & Access** | Remote pairing, Tailscale mesh VPN, and offline gateways | [[Networking & Remote Access\|Networking-&-Remote-Access]] • [[Tailscale Mesh VPN Guide\|Tailscale-Mesh-VPN-Guide]] • [[Offline Hotspot & LAN\|Offline-Hotspot-&-LAN]] |
-| 🛠️ **Optimization & Support**| Hardware profiling, troubleshooting, and upcoming roadmap | [[Hardware Tuning & Benchmarks\|Hardware-Tuning-&-Benchmarks]] • [[Troubleshooting & FAQ\|Troubleshooting-&-FAQ]] • [[Roadmap & Future Milestones\|Roadmap-&-Future-Milestones]] |
+| 🛠️ **Optimization & Support**| Hardware profiling, troubleshooting, and bug audits | [[Hardware Tuning & Benchmarks\|Hardware-Tuning-&-Benchmarks]] • [[Troubleshooting & FAQ\|Troubleshooting-&-FAQ]] • [[Bug Audit & Resolution\|Bug-Audit-&-Resolution-Report]] • [[Roadmap & Future Milestones\|Roadmap-&-Future-Milestones]] |
 
 ---
 

@@ -33,6 +33,7 @@
 #### 🛠️ Administration & Support
 * [[Hardware Tuning & Benchmarks\|Hardware-Tuning-&-Benchmarks]]
 * [[Troubleshooting & FAQ\|Troubleshooting-&-FAQ]]
+* [[Bug Audit & Known Issues\|Bug-Audit-&-Resolution-Report]]
 * [[Roadmap & Future Milestones\|Roadmap-&-Future-Milestones]]
 
 ---

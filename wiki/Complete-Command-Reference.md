@@ -193,3 +193,52 @@ wola.purge --models    # Purge all models in ~/models/
 wola.purge --soft -y   # Level 1: Clean system, preserve models & knowledge
 wola.purge --hard -y   # Level 3: Full nuclear self-destruction
 ```
+
+### 9. Hardware Benchmarking (`wola.bench` / `wola.b`)
+```bash
+# Run automated multi-thread inference benchmark & auto-tuner
+wola.bench
+wola.b
+```
+
+### 10. System Updates & Maintenance (`wola.update` / `wola.u`)
+```bash
+# Check remote git repo for updates and upgrade
+wola.update
+wola.u
+```
+
+### 11. Interactive Command Center (`wola.help` / `wola.h`)
+```bash
+# Launch interactive quick-launcher and command cheat sheet
+wola.help
+wola.h
+```
+
+### 12. Interface Mode Switch (`wola.ui` / `wola.tui`)
+```bash
+# Check current default interface mode
+wola.ui status
+wola.tui status
+
+# Enable Go Bubble Tea TUI as default
+wola.ui on
+wola.tui on
+
+# Switch back to lightweight classic CLI mode
+wola.ui off
+wola.tui off
+```
+
+---
+
+## 🗺️ Planned Roadmap Commands
+
+As detailed in [[Roadmap & Future Milestones|Roadmap-&-Future-Milestones]], the upcoming connection fabric and Flutter companion app introduce the following strict 1-to-1 command pairs:
+
+| Planned Feature | Casual Name | Technical Name | Description |
+|:---|:---|:---|:---|
+| **Client Pairing** | `wola.pair` | `wola.pair` | Generate cryptographic QR code / PIN for pairing Flutter and remote client apps |
+| **Connected Peers** | `wola.clients` | `wola.peers` | Inspect active authorized client devices, token scopes, and connection transports |
+| **Connection Diagnostics** | `wola.connection` | `wola.conn` | Benchmark and monitor multi-transport latency (mDNS, LAN, Tailscale, Cloudflare) |
+

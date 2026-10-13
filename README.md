@@ -6,12 +6,16 @@ Turn your Android device (Termux) or Linux machine into a private, autonomous, l
 
 ---
 
-> 📖 **Guides & Documentation**:
-> - [**Official GitHub Documentation Wiki**](https://github.com/ovrrup/wolarc/wiki) (or offline [`wiki/`](wiki/Home.md)) — Complete encyclopedia with architecture guides, RAG pipelines, Tailscale mesh VPN, TUI manual, and hardware benchmarks.
-> - [**System Architecture & Reference Manual (`DOCUMENTATION.md`)**](DOCUMENTATION.md) — Comprehensive architecture, RAG vector pipeline, offline hotspot/LAN connectivity, daemon lifecycles, and 1-to-1 command specifications.
-> - [**Installation & Complete User Guide (`GETTING_STARTED.md`)**](GETTING_STARTED.md) — Step-by-step installation on Termux & Linux, model downloads, RAG setup, remote client app pairing (Chatbox, Obsidian, NextChat), and troubleshooting.
-> - [**Complete Command Reference (`COMMANDS.md`)**](COMMANDS.md) — Exhaustive CLI reference, Technical/Casual command pairs, TUI shortcuts, configuration variables, and discrete system operations.
-> - [**Future Milestones & System Roadmap (`ROADMAP.md`)**](ROADMAP.md) — Strategic roadmap detailing resilient client-host connection methods and the official native Flutter cross-platform companion app.
+> 📚 **Official Documentation Wiki**:
+> Everything you need to know about Wolarc is comprehensively documented in our **[Official GitHub Documentation Wiki](https://github.com/ovrrup/wolarc/wiki)** (also mirrored offline in [`wiki/`](wiki/Home.md)):
+>
+> | Category | Wiki Guide Pages |
+> | :--- | :--- |
+> | 🚀 **Getting Started** | [**Quick Start Guide**](https://github.com/ovrrup/wolarc/wiki/Quick-Start-Guide) • [**Installation on Termux & Linux**](https://github.com/ovrrup/wolarc/wiki/Installation-on-Termux-&-Linux) |
+> | 🧠 **Architecture & Engine** | [**Architecture & Topology**](https://github.com/ovrrup/wolarc/wiki/Architecture-&-Topology) • [**RAG & Vector Engine**](https://github.com/ovrrup/wolarc/wiki/RAG-&-Vector-Engine) • [**Daemon Lifecycle & Storage**](https://github.com/ovrrup/wolarc/wiki/Daemon-Lifecycle-&-Storage) |
+> | ⌨️ **Commands & Control** | [**Complete Command Reference**](https://github.com/ovrrup/wolarc/wiki/Complete-Command-Reference) • [**Go TUI User Manual**](https://github.com/ovrrup/wolarc/wiki/Go-TUI-User-Manual) • [**Configuration Knobs**](https://github.com/ovrrup/wolarc/wiki/Configuration-Knobs) |
+> | 🌐 **Networking & Access** | [**Networking & Remote Access**](https://github.com/ovrrup/wolarc/wiki/Networking-&-Remote-Access) • [**Tailscale Mesh VPN Guide**](https://github.com/ovrrup/wolarc/wiki/Tailscale-Mesh-VPN-Guide) • [**Offline Hotspot & LAN**](https://github.com/ovrrup/wolarc/wiki/Offline-Hotspot-&-LAN) |
+> | 🛠️ **Optimization & Support** | [**Hardware Tuning & Benchmarks**](https://github.com/ovrrup/wolarc/wiki/Hardware-Tuning-&-Benchmarks) • [**Troubleshooting & FAQ**](https://github.com/ovrrup/wolarc/wiki/Troubleshooting-&-FAQ) • [**Bug Audit & Resolution**](https://github.com/ovrrup/wolarc/wiki/Bug-Audit-&-Resolution-Report) • [**Roadmap & Milestones**](https://github.com/ovrrup/wolarc/wiki/Roadmap-&-Future-Milestones) |
 
 ---
 
@@ -226,7 +230,8 @@ Connect any OpenAI-compatible client (Chatbox, Obsidian, NextChat, OpenWebUI):
 
 ## Future Milestones & System Roadmap 🗺️
 
-Wolarc is expanding into an interconnected local AI ecosystem. See [**ROADMAP.md**](ROADMAP.md) for full architecture specifications, protocols, and phased delivery plans:
+Wolarc is expanding into an interconnected local AI ecosystem. See [**Roadmap & Future Milestones on the Wiki**](https://github.com/ovrrup/wolarc/wiki/Roadmap-&-Future-Milestones) (or offline [`wiki/Roadmap-&-Future-Milestones.md`](wiki/Roadmap-&-Future-Milestones.md)) for full architecture specifications, protocols, and phased delivery plans:
+
 
 ### 1. Reliable & Effective Client-Host Connection Fabric
 - **Zero-Config Local Auto-Discovery (mDNS / Zeroconf)**: Broadcasts `_wolarc._tcp.local` so clients discover Wolarc nodes instantly on Wi-Fi and hotspots without manual IP entry.
