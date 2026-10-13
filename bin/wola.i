@@ -36,6 +36,239 @@ if [ ! -f "$DB_FILE" ] && [ -f "$HOME/.wola/data/knowledge_db.json" ]; then
 fi
 AGENT_PORT="${AGENT_PORT:-5000}"
 
+delete_knowledge_doc() {
+    local target="$1"
+    local force=false
+    [ "$2" = "-y" ] || [ "$2" = "--yes" ] || [ "$2" = "-f" ] && force=true
+    [ "$target" = "-y" ] || [ "$target" = "--yes" ] && { force=true; target=""; }
+
+    if [ -z "$target" ]; then
+        local files=()
+        while IFS= read -r -d '' f; do
+            files+=("$f")
+        done < <(find "$KNOWLEDGE_DIR" -maxdepth 2 -type f -print0 2>/dev/null)
+
+        if [ ${#files[@]} -eq 0 ]; then
+            echo -e "${C_YELLOW}[-] No documents found in ${KNOWLEDGE_DIR}.${C_RESET}"
+            exit 0
+        fi
+
+        echo -e "${C_CYAN}==================================================${C_RESET}"
+        echo -e "       ${C_BOLD}SELECT KNOWLEDGE DOCUMENT TO DELETE${C_RESET}"
+        echo -e "${C_CYAN}==================================================${C_RESET}"
+        local idx=1
+        for f in "${files[@]}"; do
+            local rel="${f#$KNOWLEDGE_DIR/}"
+            local sz=$(du -h "$f" 2>/dev/null | cut -f1)
+            echo -e "  [${C_BOLD}$idx${C_RESET}] $rel ($sz)"
+            idx=$((idx + 1))
+        done
+        echo -e "  [${C_DIM}0${C_RESET}] Cancel"
+        echo -e "${C_CYAN}==================================================${C_RESET}"
+        read -p "Select document to delete [1-${#files[@]}/0]: " sel
+        if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#files[@]}" ]; then
+            target="${files[$((sel - 1))]}"
+        else
+            echo "Deletion cancelled."
+            exit 0
+        fi
+    fi
+
+    local full_path=""
+    if [ -f "$KNOWLEDGE_DIR/$target" ]; then
+        full_path="$KNOWLEDGE_DIR/$target"
+    elif [ -f "$target" ]; then
+        local abs_target=$(cd "$(dirname "$target")" 2>/dev/null && pwd)/$(basename "$target")
+        local abs_kdir=$(cd "$KNOWLEDGE_DIR" 2>/dev/null && pwd)
+        if [ -n "$abs_kdir" ] && [[ "$abs_target" == "$abs_kdir"/* ]]; then
+            full_path="$abs_target"
+        else
+            echo -e "${C_RED}[-] Error: File '$target' is outside the knowledge directory (${KNOWLEDGE_DIR}).${C_RESET}"
+            echo -e "    Deletion is strictly restricted to files within the knowledge base to prevent accidental data loss."
+            exit 1
+        fi
+    else
+        echo -e "${C_RED}[-] Error: File '$target' not found in ${KNOWLEDGE_DIR}.${C_RESET}"
+        exit 1
+    fi
+
+    local fname=$(basename "$full_path")
+    local fsz=$(du -h "$full_path" 2>/dev/null | cut -f1)
+
+    if [ "$force" = false ]; then
+        read -p "Delete '$fname' ($fsz) and remove its vectors from database? (y/N): " conf
+        if [[ ! "$conf" =~ ^[Yy] ]]; then
+            echo "Deletion cancelled."
+            exit 0
+        fi
+    fi
+
+    rm -f "$full_path"
+    echo -e "${C_GREEN}[+] Deleted source document: '$fname' from ${KNOWLEDGE_DIR}.${C_RESET}"
+
+    python3 -c "
+import json, os, sys, fcntl
+db_path = os.path.expanduser(sys.argv[1])
+full_target = os.path.abspath(sys.argv[2])
+fname = os.path.basename(full_target)
+if os.path.exists(db_path):
+    lock_path = f'{db_path}.lock'
+    try:
+        with open(lock_path, 'w') as lf:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            with open(db_path, 'r') as df:
+                db = json.load(df)
+            to_del = [k for k in db if k == full_target or os.path.basename(k) == fname or db[k].get('filename') == fname]
+            for k in to_del:
+                del db[k]
+            with open(db_path, 'w') as df:
+                json.dump(db, df, indent=2)
+            fcntl.flock(lf, fcntl.LOCK_UN)
+            if to_del:
+                print(f'  [+] Pruned {len(to_del)} vector record(s) from database.')
+    except Exception as e:
+        print(f'  [-] Warning: could not prune vectors: {e}')
+" "$DB_FILE" "$full_path"
+}
+
+delete_chat_session() {
+    local target="$1"
+    local force=false
+    [ "$2" = "-y" ] || [ "$2" = "--yes" ] || [ "$2" = "-f" ] && force=true
+
+    if [ -z "$target" ]; then
+        local chats=()
+        for f in "$CHATS_DIR"/*.json "$CHATS_DIR"/*.txt; do
+            [ -e "$f" ] && chats+=("$(basename "$f")")
+        done
+        if [ ${#chats[@]} -eq 0 ]; then
+            echo -e "${C_YELLOW}[-] No chat histories found in ${CHATS_DIR}.${C_RESET}"
+            exit 0
+        fi
+        echo -e "${C_CYAN}==================================================${C_RESET}"
+        echo -e "       ${C_BOLD}SELECT CHAT SESSION TO DELETE${C_RESET}"
+        echo -e "${C_CYAN}==================================================${C_RESET}"
+        local idx=1
+        for c in "${chats[@]}"; do
+            local sz=$(du -h "$CHATS_DIR/$c" 2>/dev/null | cut -f1)
+            echo -e "  [${C_BOLD}$idx${C_RESET}] $c ($sz)"
+            idx=$((idx + 1))
+        done
+        echo -e "  [${C_DIM}0${C_RESET}] Cancel"
+        echo -e "${C_CYAN}==================================================${C_RESET}"
+        read -p "Select chat session to delete [1-${#chats[@]}/0]: " sel
+        if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#chats[@]}" ]; then
+            target="${chats[$((sel - 1))]}"
+        else
+            echo "Deletion cancelled."
+            exit 0
+        fi
+    fi
+
+    local full_path=""
+    if [ -f "$CHATS_DIR/$target" ]; then
+        full_path="$CHATS_DIR/$target"
+    elif [ -f "$CHATS_DIR/${target}.json" ]; then
+        full_path="$CHATS_DIR/${target}.json"
+    elif [ -f "$target" ]; then
+        local abs_target=$(cd "$(dirname "$target")" 2>/dev/null && pwd)/$(basename "$target")
+        local abs_cdir=$(cd "$CHATS_DIR" 2>/dev/null && pwd)
+        if [ -n "$abs_cdir" ] && [[ "$abs_target" == "$abs_cdir"/* ]]; then
+            full_path="$abs_target"
+        else
+            echo -e "${C_RED}[-] Error: Chat session '$target' is outside the chat directory (${CHATS_DIR}).${C_RESET}"
+            echo -e "    Deletion is strictly restricted to sessions within the chat directory to prevent accidental data loss."
+            exit 1
+        fi
+    else
+        echo -e "${C_RED}[-] Error: Chat session '$target' not found in ${CHATS_DIR}.${C_RESET}"
+        exit 1
+    fi
+
+    local cname=$(basename "$full_path")
+    if [ "$force" = false ]; then
+        read -p "Delete chat session '$cname'? (y/N): " conf
+        if [[ ! "$conf" =~ ^[Yy] ]]; then
+            echo "Deletion cancelled."
+            exit 0
+        fi
+    fi
+
+    rm -f "$full_path"
+    echo -e "${C_GREEN}[+] Deleted chat memory: '$cname'.${C_RESET}"
+
+    python3 -c "
+import json, os, sys, fcntl
+db_path = os.path.expanduser(sys.argv[1])
+full_target = os.path.abspath(sys.argv[2])
+cname = os.path.basename(full_target)
+if os.path.exists(db_path):
+    lock_path = f'{db_path}.lock'
+    try:
+        with open(lock_path, 'w') as lf:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            with open(db_path, 'r') as df:
+                db = json.load(df)
+            to_del = [k for k in db if k == full_target or os.path.basename(k) == cname or db[k].get('filename') == cname]
+            for k in to_del:
+                del db[k]
+            with open(db_path, 'w') as df:
+                json.dump(db, df, indent=2)
+            fcntl.flock(lf, fcntl.LOCK_UN)
+            if to_del:
+                print(f'  [+] Pruned {len(to_del)} dialogue vector record(s).')
+    except Exception as e:
+        print(f'  [-] Warning: could not prune vectors: {e}')
+" "$DB_FILE" "$full_path"
+}
+
+clear_all_chats() {
+    local force=false
+    [ "$1" = "-y" ] || [ "$1" = "--yes" ] || [ "$1" = "-f" ] && force=true
+
+    if [ "$force" = false ]; then
+        echo -e "${C_YELLOW}[!] This will permanently delete ALL saved chat sessions and dialogue vectors.${C_RESET}"
+        read -p "Are you sure you want to clear all chat histories? (y/N): " conf
+        if [[ ! "$conf" =~ ^[Yy] ]]; then
+            echo "Operation cancelled."
+            exit 0
+        fi
+    fi
+
+    local chat_count=0
+    if [ -d "$CHATS_DIR" ]; then
+        for cf in "$CHATS_DIR"/*.json "$CHATS_DIR"/chat_*.txt "$CHATS_DIR"/session_*.txt "$CHATS_DIR"/*.chat; do
+            if [ -f "$cf" ]; then
+                rm -f "$cf"
+                chat_count=$((chat_count + 1))
+            fi
+        done
+    fi
+    echo -e "${C_GREEN}[+] Cleared $chat_count chat history file(s) from ${CHATS_DIR}.${C_RESET}"
+
+    python3 -c "
+import json, os, sys, fcntl
+db_path = os.path.expanduser(sys.argv[1])
+chats_dir = os.path.abspath(sys.argv[2])
+if os.path.exists(db_path):
+    lock_path = f'{db_path}.lock'
+    try:
+        with open(lock_path, 'w') as lf:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            with open(db_path, 'r') as df:
+                db = json.load(df)
+            to_del = [k for k in db if db[k].get('file_type') == 'conversation' or os.path.basename(k).startswith('chat_') or k.startswith(chats_dir)]
+            for k in to_del:
+                del db[k]
+            with open(db_path, 'w') as df:
+                json.dump(db, df, indent=2)
+            fcntl.flock(lf, fcntl.LOCK_UN)
+            print(f'  [+] Pruned {len(to_del)} dialogue vector records from database.')
+    except Exception as e:
+        print(f'  [-] Warning: could not clear chat vectors: {e}')
+" "$DB_FILE" "$CHATS_DIR"
+}
+
 case "$1" in
     "sync")
         echo -e "${C_CYAN}[*] Running knowledge base synchronization...${C_RESET}"
@@ -227,212 +460,13 @@ else:
         fi
         ;;
     "rm"|"delete"|"remove")
-        shift
-        local target="$1"
-        local force=false
-        [ "$2" = "-y" ] || [ "$2" = "--yes" ] || [ "$2" = "-f" ] && force=true
-        [ "$target" = "-y" ] || [ "$target" = "--yes" ] && { force=true; target=""; }
-
-        if [ -z "$target" ]; then
-            local files=()
-            while IFS= read -r -d '' f; do
-                files+=("$f")
-            done < <(find "$KNOWLEDGE_DIR" -maxdepth 2 -type f -print0 2>/dev/null)
-
-            if [ ${#files[@]} -eq 0 ]; then
-                echo -e "${C_YELLOW}[-] No documents found in ${KNOWLEDGE_DIR}.${C_RESET}"
-                exit 0
-            fi
-
-            echo -e "${C_CYAN}==================================================${C_RESET}"
-            echo -e "       ${C_BOLD}SELECT KNOWLEDGE DOCUMENT TO DELETE${C_RESET}"
-            echo -e "${C_CYAN}==================================================${C_RESET}"
-            local idx=1
-            for f in "${files[@]}"; do
-                local rel="${f#$KNOWLEDGE_DIR/}"
-                local sz=$(du -h "$f" 2>/dev/null | cut -f1)
-                echo -e "  [${C_BOLD}$idx${C_RESET}] $rel ($sz)"
-                idx=$((idx + 1))
-            done
-            echo -e "  [${C_DIM}0${C_RESET}] Cancel"
-            echo -e "${C_CYAN}==================================================${C_RESET}"
-            read -p "Select document to delete [1-${#files[@]}/0]: " sel
-            if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#files[@]}" ]; then
-                target="${files[$((sel - 1))]}"
-            else
-                echo "Deletion cancelled."
-                exit 0
-            fi
-        fi
-
-        local full_path="$target"
-        [ ! -f "$full_path" ] && [ -f "$KNOWLEDGE_DIR/$target" ] && full_path="$KNOWLEDGE_DIR/$target"
-
-        if [ ! -f "$full_path" ]; then
-            echo -e "${C_RED}[-] Error: File '$target' not found in ${KNOWLEDGE_DIR}.${C_RESET}"
-            exit 1
-        fi
-
-        local fname=$(basename "$full_path")
-        local fsz=$(du -h "$full_path" 2>/dev/null | cut -f1)
-
-        if [ "$force" = false ]; then
-            read -p "Delete '$fname' ($fsz) and remove its vectors from database? (y/N): " conf
-            if [[ ! "$conf" =~ ^[Yy] ]]; then
-                echo "Deletion cancelled."
-                exit 0
-            fi
-        fi
-
-        rm -f "$full_path"
-        echo -e "${C_GREEN}[+] Deleted source document: '$fname' from ${KNOWLEDGE_DIR}.${C_RESET}"
-
-        python3 -c "
-import json, os, sys, fcntl
-db_path = os.path.expanduser(sys.argv[1])
-full_target = os.path.abspath(sys.argv[2])
-fname = os.path.basename(full_target)
-if os.path.exists(db_path):
-    lock_path = f'{db_path}.lock'
-    try:
-        with open(lock_path, 'w') as lf:
-            fcntl.flock(lf, fcntl.LOCK_EX)
-            with open(db_path, 'r') as df:
-                db = json.load(df)
-            to_del = [k for k in db if k == full_target or os.path.basename(k) == fname or db[k].get('filename') == fname]
-            for k in to_del:
-                del db[k]
-            with open(db_path, 'w') as df:
-                json.dump(db, df, indent=2)
-            fcntl.flock(lf, fcntl.LOCK_UN)
-            if to_del:
-                print(f'  [+] Pruned {len(to_del)} vector record(s) from database.')
-    except Exception as e:
-        print(f'  [-] Warning: could not prune vectors: {e}')
-" "$DB_FILE" "$full_path"
+        shift; delete_knowledge_doc "$@"
         ;;
     "rm-chat"|"delete-chat")
-        shift
-        local target="$1"
-        local force=false
-        [ "$2" = "-y" ] || [ "$2" = "--yes" ] || [ "$2" = "-f" ] && force=true
-
-        if [ -z "$target" ]; then
-            local chats=()
-            for f in "$CHATS_DIR"/*.json "$CHATS_DIR"/*.txt; do
-                [ -e "$f" ] && chats+=("$(basename "$f")")
-            done
-            if [ ${#chats[@]} -eq 0 ]; then
-                echo -e "${C_YELLOW}[-] No chat histories found in ${CHATS_DIR}.${C_RESET}"
-                exit 0
-            fi
-            echo -e "${C_CYAN}==================================================${C_RESET}"
-            echo -e "       ${C_BOLD}SELECT CHAT SESSION TO DELETE${C_RESET}"
-            echo -e "${C_CYAN}==================================================${C_RESET}"
-            local idx=1
-            for c in "${chats[@]}"; do
-                local sz=$(du -h "$CHATS_DIR/$c" 2>/dev/null | cut -f1)
-                echo -e "  [${C_BOLD}$idx${C_RESET}] $c ($sz)"
-                idx=$((idx + 1))
-            done
-            echo -e "  [${C_DIM}0${C_RESET}] Cancel"
-            echo -e "${C_CYAN}==================================================${C_RESET}"
-            read -p "Select chat session to delete [1-${#chats[@]}/0]: " sel
-            if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#chats[@]}" ]; then
-                target="${chats[$((sel - 1))]}"
-            else
-                echo "Deletion cancelled."
-                exit 0
-            fi
-        fi
-
-        local full_path="$target"
-        [ ! -f "$full_path" ] && [ -f "$CHATS_DIR/$target" ] && full_path="$CHATS_DIR/$target"
-        [ ! -f "$full_path" ] && [ -f "$CHATS_DIR/${target}.json" ] && full_path="$CHATS_DIR/${target}.json"
-
-        if [ ! -f "$full_path" ]; then
-            echo -e "${C_RED}[-] Error: Chat session '$target' not found in ${CHATS_DIR}.${C_RESET}"
-            exit 1
-        fi
-
-        local cname=$(basename "$full_path")
-        if [ "$force" = false ]; then
-            read -p "Delete chat session '$cname'? (y/N): " conf
-            if [[ ! "$conf" =~ ^[Yy] ]]; then
-                echo "Deletion cancelled."
-                exit 0
-            fi
-        fi
-
-        rm -f "$full_path"
-        echo -e "${C_GREEN}[+] Deleted chat memory: '$cname'.${C_RESET}"
-
-        python3 -c "
-import json, os, sys, fcntl
-db_path = os.path.expanduser(sys.argv[1])
-full_target = os.path.abspath(sys.argv[2])
-cname = os.path.basename(full_target)
-if os.path.exists(db_path):
-    lock_path = f'{db_path}.lock'
-    try:
-        with open(lock_path, 'w') as lf:
-            fcntl.flock(lf, fcntl.LOCK_EX)
-            with open(db_path, 'r') as df:
-                db = json.load(df)
-            to_del = [k for k in db if k == full_target or os.path.basename(k) == cname or db[k].get('filename') == cname]
-            for k in to_del:
-                del db[k]
-            with open(db_path, 'w') as df:
-                json.dump(db, df, indent=2)
-            fcntl.flock(lf, fcntl.LOCK_UN)
-            if to_del:
-                print(f'  [+] Pruned {len(to_del)} dialogue vector record(s).')
-    except Exception as e:
-        print(f'  [-] Warning: could not prune vectors: {e}')
-" "$DB_FILE" "$full_path"
+        shift; delete_chat_session "$@"
         ;;
     "clear-chats")
-        shift
-        local force=false
-        [ "$1" = "-y" ] || [ "$1" = "--yes" ] || [ "$1" = "-f" ] && force=true
-
-        if [ "$force" = false ]; then
-            echo -e "${C_YELLOW}[!] This will permanently delete ALL saved chat sessions and dialogue vectors.${C_RESET}"
-            read -p "Are you sure you want to clear all chat histories? (y/N): " conf
-            if [[ ! "$conf" =~ ^[Yy] ]]; then
-                echo "Operation cancelled."
-                exit 0
-            fi
-        fi
-
-        local chat_count=0
-        if [ -d "$CHATS_DIR" ]; then
-            chat_count=$(find "$CHATS_DIR" -type f | wc -l)
-            rm -rf "${CHATS_DIR:?}"/* 2>/dev/null || true
-        fi
-        echo -e "${C_GREEN}[+] Cleared $chat_count chat history file(s) from ${CHATS_DIR}.${C_RESET}"
-
-        python3 -c "
-import json, os, sys, fcntl
-db_path = os.path.expanduser(sys.argv[1])
-chats_dir = os.path.abspath(sys.argv[2])
-if os.path.exists(db_path):
-    lock_path = f'{db_path}.lock'
-    try:
-        with open(lock_path, 'w') as lf:
-            fcntl.flock(lf, fcntl.LOCK_EX)
-            with open(db_path, 'r') as df:
-                db = json.load(df)
-            to_del = [k for k in db if db[k].get('file_type') == 'conversation' or os.path.basename(k).startswith('chat_') or k.startswith(chats_dir)]
-            for k in to_del:
-                del db[k]
-            with open(db_path, 'w') as df:
-                json.dump(db, df, indent=2)
-            fcntl.flock(lf, fcntl.LOCK_UN)
-            print(f'  [+] Pruned {len(to_del)} dialogue vector records from database.')
-    except Exception as e:
-        print(f'  [-] Warning: could not clear chat vectors: {e}')
-" "$DB_FILE" "$CHATS_DIR"
+        shift; clear_all_chats "$@"
         ;;
     "-h"|"--help"|"help")
         echo -e "${C_BOLD}Wola Vector Indexer & Knowledge Manager${C_RESET}"

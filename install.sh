@@ -427,20 +427,34 @@ detect_and_handle_conflicts() {
     case "$choice" in
         1|"clean")
             echo -e "\n[*] Cleaning interfering processes and files..."
-            pkill -f "llama-server" 2>/dev/null || true
-            pkill -f "agent.py" 2>/dev/null || true
-            pkill -f "ssh.*(localhost.run|serveo.net|pinggy.io)" 2>/dev/null || true
+            pkill -9 -f "llama-server" 2>/dev/null || true
+            pkill -9 -f "agent.py" 2>/dev/null || true
+            pkill -9 -f "indexer.py" 2>/dev/null || true
+            pkill -9 -f "wola-tunnel-daemon" 2>/dev/null || true
+            pkill -9 -f "cloudflared.*tunnel" 2>/dev/null || true
+            pkill -9 -f "ssh.*(localhost.run|serveo.net|pinggy.io)" 2>/dev/null || true
+            pkill -9 -f "wola-tui" 2>/dev/null || true
+            command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
+            stty sane 2>/dev/null || true
+            printf '\033[?25h\033[0m' 2>/dev/null || true
             sleep 1
 
-            rm -f "$HOME/.wola.lock" "$HOME/.wola_url" "$HOME/.wola_version" "$HOME/.wola_bench_cache.json" "$HOME/.wola_update_cache.json"
-            rm -f "$HOME/agent.log" "$HOME/tunnel.log" "$HOME/llama_chat.log" "$HOME/llama_embed.log"
-            rm -f "$HOME/agent.py" "$HOME/indexer.py"
+            rm -rf "$HOME/.wola/run" "$HOME/.wola/logs" "$HOME/.wola/lib" 2>/dev/null || true
+            rm -f "$HOME"/.wola.* "$HOME"/.wola_* 2>/dev/null || true
+            rm -rf "$HOME/.gunicorn" 2>/dev/null || true
+            rm -f /tmp/wola* /tmp/.wola* "${PREFIX:-/data/data/com.termux/files/usr}/tmp"/wola* 2>/dev/null || true
+            rm -f "$HOME/agent.log" "$HOME/tunnel.log" "$HOME/indexer.log" "$HOME/chat.log" "$HOME/embed.log" "$HOME/llama_chat.log" "$HOME/llama_embed.log" "$HOME/thinking.log"
+            rm -f "$HOME/agent.py" "$HOME/indexer.py" "$HOME/web_ui.py"
+            rm -rf "$HOME/__pycache__" 2>/dev/null || true
 
-            if [ -d "$TARGET_BIN" ]; then
-                for b in "$TARGET_BIN"/wola* "$TARGET_BIN"/wolarc; do
-                    rm -f "$b" 2>/dev/null || true
+            CANDIDATE_BINS=("$TARGET_BIN" "${PREFIX:-/data/data/com.termux/files/usr}/bin" "$HOME/.local/bin" "/usr/local/bin")
+            for bdir in "${CANDIDATE_BINS[@]}"; do
+                [ -d "$bdir" ] || continue
+                rm -f "$bdir"/wola "$bdir"/wolarc "$bdir"/wola-tui "$bdir"/wola-tunnel-daemon "$bdir"/wola-h 2>/dev/null || true
+                for f in "$bdir"/wola.* "$bdir"/wola-*; do
+                    [ -e "$f" ] || [ -L "$f" ] && rm -f "$f" 2>/dev/null || true
                 done
-            fi
+            done
 
             if [ -f "$HOME/.wolarc" ]; then
                 local bak="$HOME/.wolarc.bak.$(date +%s)"
@@ -449,7 +463,7 @@ detect_and_handle_conflicts() {
                 rm -f "$HOME/.wolarc"
             fi
 
-            echo -e "  ${C_GREEN}✓ Cleaned interfering files and stopped active processes.${C_RESET}"
+            echo -e "  ${C_GREEN}✓ Cleaned interfering files, restored terminal, and stopped active processes.${C_RESET}"
             echo -e "  ${C_GREEN}✓ ~/models directory and .gguf files preserved intact.${C_RESET}"
             ;;
 
@@ -771,6 +785,10 @@ deploy_binaries() {
     # Stop: wola.k (technical) <-> wola.stop (casual)
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.k"
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.stop"
+
+    # Exit: wola.x (technical) <-> wola.exit (casual)
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.x"
+    ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.exit"
 
     # Restart: wola.rs (technical) <-> wola.restart (casual)
     ln -sf "$TARGET_BIN/wolarc" "$TARGET_BIN/wola.rs"

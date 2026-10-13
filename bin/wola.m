@@ -135,6 +135,10 @@ delete_model() {
     fi
 
     target=$(basename "$target")
+    if [[ "$target" != *.gguf ]]; then
+        echo -e "${C_RED}[-] Error: '$target' is not a GGUF model file. Model deletion only applies to .gguf files.${C_RESET}"
+        return 1
+    fi
     local full_path="$MODELS_DIR/$target"
 
     if [ ! -f "$full_path" ]; then

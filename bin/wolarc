@@ -80,8 +80,14 @@ if os.path.exists(path):
 ensure_wola_layout
 
 is_running() {
-    pgrep -f "llama-server" >/dev/null 2>&1 || pgrep -f "agent.py" >/dev/null 2>&1
+    pgrep -f "llama-server" >/dev/null 2>&1 || \
+    pgrep -f "agent.py" >/dev/null 2>&1 || \
+    pgrep -f "indexer.py" >/dev/null 2>&1 || \
+    pgrep -f "wola-tunnel-daemon" >/dev/null 2>&1 || \
+    pgrep -f "cloudflared.*tunnel" >/dev/null 2>&1 || \
+    pgrep -f "ssh.*(localhost.run|serveo.net|pinggy.io)" >/dev/null 2>&1
 }
+
 
 is_tui_enabled() {
     [ "${ENABLE_TUI:-true}" != "false" ] && [ "${ENABLE_TUI:-true}" != "0" ] && [ "${ENABLE_TUI:-true}" != "off" ]
@@ -375,12 +381,12 @@ stop_node() {
         return 0
     fi
     echo -e "${C_YELLOW}[*] Shutting down all Wola services...${C_RESET}"
-    pkill -9 -f "llama-server" 2>/dev/null
-    pkill -9 -f "indexer.py" 2>/dev/null
-    pkill -9 -f "agent.py" 2>/dev/null
+    pkill -9 -f "llama-server" 2>/dev/null || true
+    pkill -9 -f "indexer.py" 2>/dev/null || true
+    pkill -9 -f "agent.py" 2>/dev/null || true
 
     local tdaemon=""
-    if [ -x "${PREFIX:-/data/data/com.termux/files/usr}/bin/wola-tunnel-daemon" ]; then
+    if [ -x "${PREFIX:-/data/data/com.termux/files/usr}/bin" ] && [ -x "${PREFIX:-/data/data/com.termux/files/usr}/bin/wola-tunnel-daemon" ]; then
         tdaemon="${PREFIX:-/data/data/com.termux/files/usr}/bin/wola-tunnel-daemon"
     elif [ -x "$(dirname "$0")/wola-tunnel-daemon" ]; then
         tdaemon="$(dirname "$0")/wola-tunnel-daemon"
@@ -388,32 +394,92 @@ stop_node() {
         tdaemon="$HOME/wola/bin/wola-tunnel-daemon"
     fi
     [ -n "$tdaemon" ] && "$tdaemon" stop >/dev/null 2>&1
-    pkill -9 -f "wola-tunnel-daemon" 2>/dev/null
-    pkill -9 -f "cloudflared.*tunnel" 2>/dev/null
-    pkill -9 -f "ssh.*localhost.run" 2>/dev/null
-    pkill -9 -f "ssh.*serveo.net" 2>/dev/null
-    pkill -9 -f "ssh.*pinggy" 2>/dev/null
+    pkill -9 -f "wola-tunnel-daemon" 2>/dev/null || true
+    pkill -9 -f "cloudflared.*tunnel" 2>/dev/null || true
+    pkill -9 -f "ssh.*localhost.run" 2>/dev/null || true
+    pkill -9 -f "ssh.*serveo.net" 2>/dev/null || true
+    pkill -9 -f "ssh.*pinggy" 2>/dev/null || true
+    pkill -9 -f "wola-tui" 2>/dev/null || true
 
     rm -f "$LOCK" "$RUN_DIR/wola.lock" "$HOME/.wola.lock" \
           "$RUN_DIR/wola_url" "$RUN_DIR/wola_endpoint" "$RUN_DIR/wola_provider" \
-          "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider"
-    termux-wake-unlock 2>/dev/null
+          "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider" \
+          "$HOME/.wola_tunnel_daemon.pid" 2>/dev/null || true
+    rm -f "$RUN_DIR"/*.pid "$RUN_DIR"/*.lock 2>/dev/null || true
+
+    command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
+    stty sane 2>/dev/null || true
+    printf '\033[?25h\033[0m' 2>/dev/null || true
+
     echo -e "${C_GREEN}[+] [SWITCH: OFF] Services stopped and wake-lock released.${C_RESET}"
 }
 
-restart_node() {
+exit_node() {
     if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-        echo -e "${C_BOLD}Wolarc Restart Service${C_RESET}"
-        echo "Performs a graceful stop, resource cleanup, and restart of all node daemons."
+        echo -e "${C_BOLD}Wolarc Environment Exit & Reset${C_RESET}"
+        echo "Cleanly stops all services, clears runtime locks/PIDs, releases wake-locks,"
+        echo "and restores terminal state to avoid environment corruption."
         echo ""
         echo "Usage:"
-        echo "  wola.restart       (Casual)"
-        echo "  wola.rs            (Technical)"
-        echo "  wola restart / wola rs"
+        echo "  wola.exit          (Casual)"
+        echo "  wola.x             (Technical)"
+        echo "  wola exit / wola x"
         return 0
     fi
 
+    echo -e "${C_YELLOW}[*] Performing clean exit and environment reset...${C_RESET}"
+    stop_node >/dev/null 2>&1 || true
+
+    # Clean runtime temporary files and residual locks
+    rm -f "$RUN_DIR"/*.pid "$RUN_DIR"/*.lock 2>/dev/null || true
+    rm -f /tmp/wola* /tmp/.wola* "${PREFIX:-/data/data/com.termux/files/usr}/tmp"/wola* 2>/dev/null || true
+    rm -f "$HOME/.wola.lock" "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider" "$HOME/.wola_tunnel_daemon.pid" 2>/dev/null || true
+
+    # Release any lingering wake locks
+    command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
+
+    # Restore clean terminal mode
+    stty sane 2>/dev/null || true
+    printf '\033[?25h\033[0m' 2>/dev/null || true
+
+    echo -e "${C_GREEN}[+] [SWITCH: OFF] Wola environment cleanly exited and terminal state restored.${C_RESET}"
+}
+
+restart_node() {
+    local refresh=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")
+                echo -e "${C_BOLD}Wolarc Restart Service${C_RESET}"
+                echo "Performs a graceful stop, resource cleanup, and restart of all node daemons."
+                echo ""
+                echo "Usage:"
+                echo "  wola.restart [-r|--refresh]    (Casual)"
+                echo "  wola.rs [-r|--refresh]         (Technical)"
+                echo "  wola restart [-r|--refresh] / wola rs [-r]"
+                echo ""
+                echo "Options:"
+                echo "  -r, --refresh   Flush Python cache, update/metrics cache, and reload ~/.wolarc"
+                return 0
+                ;;
+            "-r"|"--refresh")
+                refresh=true
+                ;;
+        esac
+        shift
+    done
+
     echo -e "${C_YELLOW}[*] Restarting Wola AI Node stack...${C_RESET}"
+    if [ "$refresh" = true ]; then
+        echo -e "    [*] Refreshing runtime environment and flushing caches..."
+        rm -rf "$HOME/__pycache__" "$LIB_DIR/__pycache__" 2>/dev/null || true
+        rm -f "$HOME/.wola_metrics.json" "$HOME/.wola_update_cache.json" "$HOME/.wola_bench_cache.json" 2>/dev/null || true
+        rm -f /tmp/wola* /tmp/.wola* "${PREFIX:-/data/data/com.termux/files/usr}/tmp"/wola* 2>/dev/null || true
+        stty sane 2>/dev/null || true
+        printf '\033[?25h\033[0m' 2>/dev/null || true
+        [ -f "$CONFIG" ] && source "$CONFIG" 2>/dev/null || true
+    fi
+
     stop_node
     sleep 2
     start_node
@@ -527,6 +593,7 @@ case "$INVOCATION" in
     "wola.r"|"wola.start")          start_node "$@" ;;
     "wola.k"|"wola.stop")           stop_node "$@" ;;
     "wola.rs"|"wola.restart")       restart_node "$@" ;;
+    "wola.x"|"wola.exit")           exit_node "$@" ;;
     "wola.status"|"wola.check")     status_node "$@" ;;
     "wola.d"|"wola.dashboard")      exec "$PREFIX/bin/wola.d" "$@" ;;
     "wola.c"|"wola.chat")           exec "$PREFIX/bin/wola.chat" "$@" ;;
@@ -558,6 +625,7 @@ case "$INVOCATION" in
             "r"|"start")               shift; start_node "$@" ;;
             "k"|"stop")                shift; stop_node "$@" ;;
             "rs"|"restart")            shift; restart_node "$@" ;;
+            "x"|"exit"|"quit"|"q")     shift; exit_node "$@" ;;
             "status"|"check")          shift; status_node "$@" ;;
             "d"|"dashboard")
                 shift
@@ -634,8 +702,8 @@ case "$INVOCATION" in
                     exec wola-tui "$@"
                 fi
                 echo -e "${C_BOLD}Wola Autonomous AI Node Suite${C_RESET}"
-                echo "Technical Commands : wola.r | wola.k | wola.rs | wola.status | wola.d | wola.c | wola.m | wola.gt | wola.i | wola.b | wola.l | wola.th | wola.url | wola.local | wola.t | wola.u | wola.purge | wola.h"
-                echo "Casual Commands    : wola.start | wola.stop | wola.restart | wola.check | wola.dashboard | wola.chat | wola.models | wola.store | wola.knowledge | wola.bench | wola.log | wola.think | wola.link | wola.hotspot | wola.config | wola.update | wola.uninstall | wola.help"
+                echo "Technical Commands : wola.r | wola.k | wola.rs | wola.x | wola.status | wola.d | wola.c | wola.m | wola.gt | wola.i | wola.b | wola.l | wola.th | wola.url | wola.local | wola.t | wola.u | wola.purge | wola.h"
+                echo "Casual Commands    : wola.start | wola.stop | wola.restart | wola.exit | wola.check | wola.dashboard | wola.chat | wola.models | wola.store | wola.knowledge | wola.bench | wola.log | wola.think | wola.link | wola.hotspot | wola.config | wola.update | wola.uninstall | wola.help"
                 ;;
         esac
         ;;

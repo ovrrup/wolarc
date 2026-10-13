@@ -11,8 +11,52 @@ C_YELLOW="\033[1;33m"
 C_CYAN="\033[1;36m"
 C_MAGENTA="\033[1;35m"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
+# Path safety guards: never allow deletion of root, home, or system directories
+is_safe_custom_dir() {
+    local d="$1"
+    [ -z "$d" ] && return 1
+    local real_d
+    real_d=$(cd "$d" 2>/dev/null && pwd || echo "$d")
+    local real_home
+    real_home=$(cd "$HOME" 2>/dev/null && pwd || echo "$HOME")
+    local real_prefix=""
+    [ -n "$PREFIX" ] && real_prefix=$(cd "$PREFIX" 2>/dev/null && pwd || echo "$PREFIX")
+
+    if [ "$real_d" = "/" ] || [ "$real_d" = "$real_home" ] || \
+       [ -n "$real_prefix" -a "$real_d" = "$real_prefix" ] || \
+       [ "$real_d" = "/usr" ] || [ "$real_d" = "/usr/local" ] || [ "$real_d" = "/bin" ] || [ "$real_d" = "/etc" ] || \
+       [ "$real_d" = "$real_home/Documents" ] || [ "$real_d" = "$real_home/Downloads" ] || \
+       [ "$real_d" = "$real_home/Desktop" ] || [ "$real_d" = "$real_home/storage" ] || \
+       [ "$real_d" = "$real_home/storage/shared" ] || [ "$real_d" = "$real_home/storage/shared/Documents" ] || \
+       [ "$real_d" = "$real_home/storage/shared/Download" ]; then
+        return 1
+    fi
+    return 0
+}
+
+# Safely detect actual Wolarc repository clone directory (if any)
+find_wola_repo() {
+    local candidate="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+    if [ -n "$candidate" ] && is_safe_custom_dir "$candidate"; then
+        if [ -f "$candidate/install.sh" ] && [ -f "$candidate/agent.py" ] && [ -f "$candidate/go.mod" ]; then
+            echo "$candidate"
+            return
+        fi
+    fi
+    if [ -n "$WOLA_SOURCE_DIR" ] && is_safe_custom_dir "$WOLA_SOURCE_DIR"; then
+        if [ -f "$WOLA_SOURCE_DIR/install.sh" ] && [ -f "$WOLA_SOURCE_DIR/agent.py" ]; then
+            echo "$WOLA_SOURCE_DIR"
+            return
+        fi
+    fi
+    for loc in "$HOME/wola" "$HOME/wolarc"; do
+        if [ -d "$loc" ] && [ -f "$loc/install.sh" ] && [ -f "$loc/agent.py" ]; then
+            echo "$loc"
+            return
+        fi
+    done
+    echo ""
+}
 
 # Detect environment and default paths
 if [ -d "/data/data/com.termux/files/usr/bin" ]; then
@@ -36,7 +80,7 @@ CONFIG="$HOME/.wolarc"
 MODELS_DIR="$HOME/models"
 KNOWLEDGE_DIR="$DEFAULT_KNOWLEDGE"
 CHATS_DIR="$DEFAULT_CHATS"
-WOLA_SOURCE_DIR="$REPO_DIR"
+WOLA_SOURCE_DIR=""
 
 WOLA_DIR="$HOME/.wola"
 LIB_DIR="$WOLA_DIR/lib"
@@ -62,6 +106,7 @@ if [ -f "$CONFIG" ]; then
     cfg_source=$(grep -E '^\s*WOLA_SOURCE_DIR=' "$CONFIG" 2>/dev/null | head -n 1 | cut -d'=' -f2- | sed 's/["'\'']//g' | xargs)
     [ -n "$cfg_source" ] && WOLA_SOURCE_DIR=$(eval echo "$cfg_source")
 fi
+
 
 LEVEL=""
 FORCE=false
@@ -169,7 +214,11 @@ if [ "$GRANULAR_LOGS" = true ] || [ "$GRANULAR_CACHE" = true ] || [ "$GRANULAR_C
             if [[ ! "$conf_c" =~ ^[Yy] ]]; then
                 echo "  Chat purge cancelled."
             else
-                rm -rf "${CHATS_DIR:?}"/* 2>/dev/null || true
+                if [ -d "$CHATS_DIR" ]; then
+                    for cf in "$CHATS_DIR"/*.json "$CHATS_DIR"/chat_*.txt "$CHATS_DIR"/session_*.txt "$CHATS_DIR"/*.chat; do
+                        [ -f "$cf" ] && rm -f "$cf" 2>/dev/null || true
+                    done
+                fi
                 python3 -c "
 import json, os, fcntl
 dbp = os.path.expanduser('$DB_FILE')
@@ -305,6 +354,8 @@ pkill -9 -f "ssh.*(localhost.run|serveo.net|pinggy.io)" 2>/dev/null || true
 pkill -9 -f "cloudflared.*tunnel" 2>/dev/null || true
 pkill -9 -f "wola-tui" 2>/dev/null || true
 command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock 2>/dev/null || true
+stty sane 2>/dev/null || true
+printf '\033[?25h\033[0m' 2>/dev/null || true
 sleep 1
 
 # 2. Remove runtime locks, state, caches, metrics
@@ -313,19 +364,23 @@ rm -rf "$RUN_DIR" 2>/dev/null || true
 rm -f "$HOME/.wola.lock" "$HOME/.wola_url" "$HOME/.wola_endpoint" "$HOME/.wola_provider"
 rm -f "$HOME/.wola_metrics.json" "$HOME/.wola_update_cache.json" "$HOME/.wola_bench_cache.json"
 rm -f "$HOME/.wola_version" "$HOME/.wola_thinking.log" "$HOME/.wola_tuner.log" "$HOME/.wola_tunnel_daemon.pid"
-rm -f "$HOME"/.wola* 2>/dev/null || true
+rm -f "$HOME"/.wola.* "$HOME"/.wola_* 2>/dev/null || true
+rm -rf "$HOME/.gunicorn" 2>/dev/null || true
+rm -f /tmp/wola* /tmp/.wola* "${PREFIX:-/data/data/com.termux/files/usr}/tmp"/wola* 2>/dev/null || true
 
 # 3. Remove log files
 echo -e "  • Removing log files..."
 rm -rf "$LOG_DIR" 2>/dev/null || true
 rm -f "$HOME/chat.log" "$HOME/embed.log" "$HOME/agent.log" "$HOME/tunnel.log" "$HOME/indexer.log"
-rm -f "$HOME/llama_chat.log" "$HOME/llama_embed.log"
+rm -f "$HOME/llama_chat.log" "$HOME/llama_embed.log" "$HOME/thinking.log"
 
 # 4. Remove deployed daemon scripts and bytecode
 echo -e "  • Removing daemon scripts and Python cache..."
 rm -rf "$LIB_DIR" 2>/dev/null || true
 rm -f "$HOME/agent.py" "$HOME/indexer.py" "$HOME/web_ui.py"
-rm -rf "$HOME/__pycache__" "$REPO_DIR/__pycache__" 2>/dev/null || true
+rm -rf "$HOME/__pycache__" 2>/dev/null || true
+detected_repo=$(find_wola_repo)
+[ -n "$detected_repo" ] && rm -rf "$detected_repo/__pycache__" 2>/dev/null || true
 
 # 5. Remove configuration files
 echo -e "  • Removing configuration (~/.wolarc)..."
@@ -336,15 +391,17 @@ echo -e "  • Removing binaries and symlinks from target bin directories..."
 CANDIDATE_BINS=("$TARGET_BIN" "${PREFIX:-/data/data/com.termux/files/usr}/bin" "$HOME/.local/bin" "/usr/local/bin")
 for bdir in "${CANDIDATE_BINS[@]}"; do
     [ -d "$bdir" ] || continue
-    for cmd in wolarc wola.r wola.k wola.rs wola.d wola.url wola.link wola.chat wola.c \
+    for cmd in wola wolarc wola.r wola.k wola.rs wola.d wola.url wola.link wola.chat wola.c \
                wola.bench wola.b wola.log wola.logs wola.th wola.gt wola.gh wola.t \
                wola.m wola.i wola.u wola.upgrade wola-h wola.h wola-tui wola.tui \
                wola.start wola.stop wola.restart wola.check wola.dashboard \
                wola.models wola.store wola.knowledge wola.think wola.local wola.hotspot \
                wola.ts wola.tailscale wola.config wola.update wola.uninstall wola.help \
-               wola.purge wola.destroy wola.selfdestruct wola.nuke; do
+               wola.purge wola.destroy wola.selfdestruct wola.nuke wola.exit wola.x \
+               wola-tunnel-daemon; do
         rm -f "$bdir/$cmd" 2>/dev/null || true
     done
+    rm -f "$bdir/wola" "$bdir/wolarc" "$bdir/wola-tui" "$bdir/wola-tunnel-daemon" "$bdir/wola-h" 2>/dev/null || true
     for f in "$bdir"/wola.* "$bdir"/wola-*; do
         [ -e "$f" ] || [ -L "$f" ] && rm -f "$f" 2>/dev/null || true
     done
@@ -353,8 +410,14 @@ done
 # 7. Level 2 & Level 3: Models & Vector Database
 if [ "$LEVEL" -ge 2 ]; then
     echo -e "  • ${C_RED}Erasing downloaded models directory: $MODELS_DIR...${C_RESET}"
-    if [ -n "$MODELS_DIR" ] && [ -d "$MODELS_DIR" ] && [ "$MODELS_DIR" != "$HOME" ] && [ "$MODELS_DIR" != "/" ]; then
-        rm -rf "$MODELS_DIR"
+    if [ -n "$MODELS_DIR" ] && [ -d "$MODELS_DIR" ] && is_safe_custom_dir "$MODELS_DIR"; then
+        if [ "$(basename "$MODELS_DIR")" = "models" ] || [ "$(basename "$MODELS_DIR")" = "wola_models" ]; then
+            rm -rf "$MODELS_DIR"
+        else
+            rm -f "$MODELS_DIR"/*.gguf
+        fi
+    elif [ -n "$MODELS_DIR" ] && [ -d "$MODELS_DIR" ]; then
+        rm -f "$MODELS_DIR"/*.gguf
     fi
 
     echo -e "  • ${C_RED}Erasing vector database files...${C_RESET}"
@@ -365,26 +428,44 @@ fi
 # 8. Level 3: Knowledge folder & chats folder
 if [ "$LEVEL" -ge 3 ]; then
     echo -e "  • ${C_RED}Erasing knowledge base directory: $KNOWLEDGE_DIR...${C_RESET}"
-    if [ -n "$KNOWLEDGE_DIR" ] && [ -d "$KNOWLEDGE_DIR" ] && [ "$KNOWLEDGE_DIR" != "$HOME" ] && [ "$KNOWLEDGE_DIR" != "/" ]; then
+    if [ -n "$KNOWLEDGE_DIR" ] && [ -d "$KNOWLEDGE_DIR" ] && is_safe_custom_dir "$KNOWLEDGE_DIR"; then
         rm -rf "$KNOWLEDGE_DIR"
+    elif [ -n "$KNOWLEDGE_DIR" ] && [ -d "$KNOWLEDGE_DIR" ]; then
+        echo -e "      ${C_YELLOW}⚠ Knowledge directory is a root user folder ($KNOWLEDGE_DIR); skipping directory removal.${C_RESET}"
     fi
+
     echo -e "  • ${C_RED}Erasing chat history directory: $CHATS_DIR...${C_RESET}"
-    if [ -n "$CHATS_DIR" ] && [ -d "$CHATS_DIR" ] && [ "$CHATS_DIR" != "$HOME" ] && [ "$CHATS_DIR" != "/" ]; then
+    if [ -n "$CHATS_DIR" ] && [ -d "$CHATS_DIR" ] && is_safe_custom_dir "$CHATS_DIR"; then
         rm -rf "$CHATS_DIR"
+    elif [ -n "$CHATS_DIR" ] && [ -d "$CHATS_DIR" ]; then
+        rm -f "$CHATS_DIR"/*.json "$CHATS_DIR"/chat_*.txt 2>/dev/null || true
     fi
+
     rm -rf "$WOLA_DIR" 2>/dev/null || true
 fi
 
-# 9. Purge Repository if requested or Level 3
-if [ "$PURGE_REPO" = true ]; then
-    echo -e "  • ${C_RED}Erasing repository source directory...${C_RESET}"
-    if [ -n "$WOLA_SOURCE_DIR" ] && [ -d "$WOLA_SOURCE_DIR" ] && [ "$WOLA_SOURCE_DIR" != "$HOME" ] && [ "$WOLA_SOURCE_DIR" != "/" ]; then
-        ( sleep 1 && rm -rf "$WOLA_SOURCE_DIR" ) >/dev/null 2>&1 &
-    fi
-    if [ -n "$REPO_DIR" ] && [ -d "$REPO_DIR" ] && [ "$REPO_DIR" != "$HOME" ] && [ "$REPO_DIR" != "/" ] && [ "$REPO_DIR" != "$WOLA_SOURCE_DIR" ]; then
-        ( sleep 1 && rm -rf "$REPO_DIR" ) >/dev/null 2>&1 &
+# Clean ~/.wola hierarchy if empty or Level >= 2
+if [ "$LEVEL" -ge 2 ]; then
+    rm -rf "$WOLA_DIR" 2>/dev/null || true
+elif [ "$LEVEL" -eq 1 ]; then
+    rm -rf "$RUN_DIR" "$LOG_DIR" "$LIB_DIR" 2>/dev/null || true
+    if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
+        rm -rf "$WOLA_DIR" 2>/dev/null || true
     fi
 fi
+
+# 9. Purge Repository if requested or Level 3 (strictly validated)
+if [ "$PURGE_REPO" = true ]; then
+    echo -e "  • ${C_RED}Erasing repository source directory...${C_RESET}"
+    safe_repo=$(find_wola_repo)
+    if [ -n "$safe_repo" ] && is_safe_custom_dir "$safe_repo" && [ -f "$safe_repo/install.sh" ] && [ -f "$safe_repo/agent.py" ]; then
+        echo -e "      ${C_GREEN}✓ Purging clone directory:${C_RESET} $safe_repo"
+        ( sleep 1 && rm -rf "$safe_repo" ) >/dev/null 2>&1 &
+    else
+        echo -e "      ${C_YELLOW}⚠ No standalone repository clone detected; skipping repo directory removal.${C_RESET}"
+    fi
+fi
+
 
 echo ""
 echo -e "${C_GREEN}═════════════════════════════════════════════════════════════════${C_RESET}"

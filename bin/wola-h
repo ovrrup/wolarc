@@ -57,7 +57,8 @@ show_manual() {
     echo -e " ${C_BOLD}COMMAND PAIRS (Casual / Technical)${C_RESET}"
     echo -e "   ${C_GREEN}wola.start${C_RESET}     / ${C_DIM}wola.r${C_RESET}        Start all services (Chat, Embed, API, Tunnel)"
     echo -e "   ${C_RED}wola.stop${C_RESET}      / ${C_DIM}wola.k${C_RESET}        Stop all services cleanly"
-    echo -e "   ${C_YELLOW}wola.restart${C_RESET}   / ${C_DIM}wola.rs${C_RESET}       Restart all background services"
+    echo -e "   ${C_RED}wola.exit${C_RESET}      / ${C_DIM}wola.x${C_RESET}        Clean exit, stop daemons & reset terminal"
+    echo -e "   ${C_YELLOW}wola.restart${C_RESET}   / ${C_DIM}wola.rs${C_RESET}       Restart all background services (-r to refresh)"
     echo -e "   ${C_CYAN}wola.check${C_RESET}     / ${C_DIM}wola.status${C_RESET}   Inspect service PIDs, RAM & port telemetry"
     echo -e "   ${C_CYAN}wola.dashboard${C_RESET} / ${C_DIM}wola.d${C_RESET}        Live telemetry dashboard & metrics"
     echo -e "   ${C_GREEN}wola.chat${C_RESET}      / ${C_DIM}wola.c${C_RESET}        Interactive RAG chat client (/think, citations)"
@@ -69,6 +70,7 @@ show_manual() {
     echo -e "   ${C_MAGENTA}wola.think${C_RESET}     / ${C_DIM}wola.th${C_RESET}       Live reasoning stream (<think> viewer & toggle)"
     echo -e "   ${C_CYAN}wola.link${C_RESET}      / ${C_DIM}wola.url${C_RESET}      Public Gateway URL, latency & QR code"
     echo -e "   ${C_CYAN}wola.hotspot${C_RESET}   / ${C_DIM}wola.local${C_RESET}    Air-Gapped Hotspot & LAN Web UI (Offline)"
+    echo -e "   ${C_CYAN}wola.tailscale${C_RESET} / ${C_DIM}wola.ts${C_RESET}       Tailscale Mesh VPN IP & Endpoint"
     echo -e "   ${C_YELLOW}wola.config${C_RESET}    / ${C_DIM}wola.t${C_RESET}        Inspect and adjust ~/.wolarc parameters"
     echo -e "   ${C_GREEN}wola.update${C_RESET}    / ${C_DIM}wola.u${C_RESET}        Check for updates and apply latest release"
     echo -e "   ${C_RED}wola.uninstall${C_RESET} / ${C_DIM}wola.purge${C_RESET}    Clean system reset and uninstaller"
@@ -85,8 +87,8 @@ interactive_menu() {
         echo -e "  [2] Stop (wola.stop)        [6] CLI Chat (wola.chat)      [10] View Logs (wola.log)"
         echo -e "  [3] Restart (wola.restart)  [7] Think Stream (wola.think) [11] Model Store (wola.store)"
         echo -e "  [4] Dashboard (wola.dash)   [8] Knowledge (wola.knowledge)[12] Local Hotspot (wola.hotspot)"
-        echo -e "  [u] Update (wola.update)    [p] Reset / Uninstall         [t]  Toggle TUI Mode"
-        echo -e "  [0] Exit Menu"
+        echo -e "  [x] Clean Exit (wola.exit)  [u] Update (wola.update)      [p]  Reset / Uninstall"
+        echo -e "  [t] Toggle TUI Mode         [0] Exit Menu"
         echo ""
         read -p "Select option (or press Enter to exit): " choice
         case "$choice" in
@@ -106,6 +108,7 @@ interactive_menu() {
             10) wola.log; read -p "Press Enter to continue..." ;;
             11) wola.gt ;;
             12) wola.url local; read -p "Press Enter to continue..." ;;
+            "x"|"X") wola.x; read -p "Press Enter to continue..." ;;
             "u"|"U") wola.u; read -p "Press Enter to continue..." ;;
             "p"|"P") wola.purge; read -p "Press Enter to continue..." ;;
             "t"|"T") 
